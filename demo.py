@@ -1,7 +1,7 @@
 """Offline demo: run `python demo.py` (add --auto to answer 'yes' automatically)."""
 import sys
 
-from matrix import config, runner
+from matrix import config, names, runner
 from matrix.graph import build_graph
 
 MESSAGES = [
@@ -12,22 +12,22 @@ MESSAGES = [
 
 def show(result: dict):
     for line in result["handoff_log"]:
-        print("   ", line)
+        print("   ", names.pretty(line))
     print("   STATUS:", result["status"])
     if result.get("reply"):
-        print("   REPLY:", result["reply"])
+        print("   REPLY:", names.pretty(result["reply"]))
 
 
 def main():
     auto = "--auto" in sys.argv
-    print(f"Stuart demo (LLM_PROVIDER={config.LLM_PROVIDER})\n")
+    print(f"{names.assistant_name()} demo (LLM_PROVIDER={config.LLM_PROVIDER})\n")
     graph = build_graph()
     for text in MESSAGES:
         print(f"> MESSAGE: {text}")
         result = runner.start(graph, text, source="demo")
         show(result)
         if result["status"] == "needs_approval":
-            print(f"   APPROVAL NEEDED: {result['question']}")
+            print(f"   APPROVAL NEEDED: {names.pretty(result['question'])}")
             answer = "yes" if auto else input("   Approve? (yes/no): ")
             result = runner.resume(graph, result["thread_id"], answer.strip().lower().startswith("y"))
             show(result)

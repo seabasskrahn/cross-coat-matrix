@@ -50,3 +50,12 @@ Add these one at a time, only when you're ready. Each one gets its own line in `
 Safety for Zone 2: anything that writes code, saves to GitHub, or runs code goes through the approval gate first. Never paste a key into chat. If a key leaks, delete it on the provider's site and make a new one.
 
 Sources: GitHub tokens: docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens · Tavily: tavily.com/pricing, docs.tavily.com/documentation/api-credits, docs.langchain.com/oss/python/integrations/providers/tavily · Brave: api-dashboard.search.brave.com/documentation/pricing · File tool: docs.langchain.com/oss/python/integrations/tools/filesystem · E2B: e2b.dev/pricing
+
+---
+
+## Rename panel and 3D view (names)
+
+Done: `python rename_panel.py` opens a local page to rename the assistant (default Stuart), agents and services, with a description, color and icon for each. Saved in `matrix_names.json` (committed; no secrets). Internal IDs never change.
+
+Next: the 3D view reads `GET http://127.0.0.1:8765/names` (fields per entry: `id`, `kind`, `reports_to`, `display`, `description`, `color`, `icon`; services also have `status`: connected / planned / off). When a planned service gets connected, change its `status` in `matrix/names.py` (`SERVICES`).
+

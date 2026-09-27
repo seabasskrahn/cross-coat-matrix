@@ -1,0 +1,214 @@
+{
+  "version": 1,
+  "agents": [
+    {
+      "id": "ASSISTANT",
+      "kind": "assistant",
+      "reports_to": null,
+      "display": "Stuart",
+      "description": "The one voice you talk to",
+      "color": "#4F8EF7",
+      "icon": "🤵"
+    },
+    {
+      "id": "SUNDAY",
+      "kind": "router",
+      "reports_to": null,
+      "display": "SUNDAY",
+      "description": "Switchboard: sends each message to the right senior staff",
+      "color": "#A855F7",
+      "icon": "🧭"
+    },
+    {
+      "id": "STEWARD",
+      "kind": "senior",
+      "reports_to": "SUNDAY",
+      "display": "STEWARD",
+      "description": "Senior staff: strategy, pricing, quality, takeoffs",
+      "color": "#0EA5E9",
+      "icon": "🧠"
+    },
+    {
+      "id": "BEZEL",
+      "kind": "senior",
+      "reports_to": "SUNDAY",
+      "display": "BEZEL",
+      "description": "Senior staff: day-to-day operations, crew, truck, money admin",
+      "color": "#F97316",
+      "icon": "⚙️"
+    },
+    {
+      "id": "MARGIN",
+      "kind": "specialist",
+      "reports_to": "STEWARD",
+      "display": "MARGIN",
+      "description": "pricing, sq-ft rates, labour-to-material ratios",
+      "color": "#22C55E",
+      "icon": "💲"
+    },
+    {
+      "id": "VECTOR",
+      "kind": "specialist",
+      "reports_to": "STEWARD",
+      "display": "VECTOR",
+      "description": "blueprint takeoffs",
+      "color": "#6366F1",
+      "icon": "📐"
+    },
+    {
+      "id": "FINISH",
+      "kind": "specialist",
+      "reports_to": "STEWARD",
+      "display": "FINISH",
+      "description": "quality checks and handover PDFs",
+      "color": "#14B8A6",
+      "icon": "✅"
+    },
+    {
+      "id": "TAPER",
+      "kind": "specialist",
+      "reports_to": "BEZEL",
+      "display": "TAPER",
+      "description": "field ops: tailgate briefings, punch lists, labour",
+      "color": "#EAB308",
+      "icon": "🦺"
+    },
+    {
+      "id": "ARMOR",
+      "kind": "specialist",
+      "reports_to": "BEZEL",
+      "display": "ARMOR",
+      "description": "truck: 2012 Silverado 1500 LTZ OBD2 maintenance and EDC readiness",
+      "color": "#64748B",
+      "icon": "🛻"
+    },
+    {
+      "id": "DEDUCT",
+      "kind": "specialist",
+      "reports_to": "BEZEL",
+      "display": "DEDUCT",
+      "description": "CCA and expense tracking (Canada)",
+      "color": "#EF4444",
+      "icon": "🧾"
+    },
+    {
+      "id": "AUDIT",
+      "kind": "specialist",
+      "reports_to": "BEZEL",
+      "display": "AUDIT",
+      "description": "accounts receivable and cash flow",
+      "color": "#10B981",
+      "icon": "💵"
+    },
+    {
+      "id": "LEDGER",
+      "kind": "specialist",
+      "reports_to": "BEZEL",
+      "display": "LEDGER",
+      "description": "bookkeeping and QuickBooks Online sync",
+      "color": "#8B5CF6",
+      "icon": "📒"
+    }
+  ],
+  "services": [
+    {
+      "id": "GROK",
+      "kind": "service",
+      "status": "connected",
+      "display": "Grok",
+      "description": "AI brain from xAI (LLM_PROVIDER=xai)",
+      "color": "#111827",
+      "icon": "⚡"
+    },
+    {
+      "id": "GEMINI",
+      "kind": "service",
+      "status": "connected",
+      "display": "Gemini",
+      "description": "AI brain from Google (LLM_PROVIDER=gemini)",
+      "color": "#8E75FF",
+      "icon": "✨"
+    },
+    {
+      "id": "CLAUDE",
+      "kind": "service",
+      "status": "off",
+      "display": "Claude",
+      "description": "AI brain from Anthropic (LLM_PROVIDER=claude); unused option",
+      "color": "#D97757",
+      "icon": "🟠"
+    },
+    {
+      "id": "GITHUB",
+      "kind": "service",
+      "status": "connected",
+      "display": "GitHub",
+      "description": "Saves the Matrix's code with full history",
+      "color": "#24292F",
+      "icon": "🐙"
+    },
+    {
+      "id": "TAVILY",
+      "kind": "service",
+      "status": "connected",
+      "display": "Tavily",
+      "description": "Web search for research",
+      "color": "#0EA5E9",
+      "icon": "🔎"
+    },
+    {
+      "id": "FILE_TOOL",
+      "kind": "service",
+      "status": "connected",
+      "display": "File tool",
+      "description": "Reads and writes files in one locked folder",
+      "color": "#F59E0B",
+      "icon": "📁"
+    },
+    {
+      "id": "N8N",
+      "kind": "service",
+      "status": "off",
+      "display": "n8n",
+      "description": "Telegram + Slack workflows (built, not running yet)",
+      "color": "#EA4B71",
+      "icon": "🔗"
+    },
+    {
+      "id": "POSTGRES",
+      "kind": "service",
+      "status": "off",
+      "display": "Postgres",
+      "description": "Optional: keeps paused approvals across restarts",
+      "color": "#336791",
+      "icon": "🐘"
+    },
+    {
+      "id": "TELEGRAM",
+      "kind": "service",
+      "status": "planned",
+      "display": "Telegram",
+      "description": "Phone chat and yes/no approvals",
+      "color": "#229ED9",
+      "icon": "✈️"
+    },
+    {
+      "id": "GOOGLE",
+      "kind": "service",
+      "status": "planned",
+      "display": "Google (Gmail/Calendar/Drive)",
+      "description": "Email, calendar and files",
+      "color": "#EA4335",
+      "icon": "📧"
+    },
+    {
+      "id": "QUICKBOOKS",
+      "kind": "service",
+      "status": "planned",
+      "display": "QuickBooks Online",
+      "description": "Bookkeeping",
+      "color": "#2CA01C",
+      "icon": "📗"
+    }
+  ]
+}

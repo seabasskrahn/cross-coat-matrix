@@ -29,12 +29,26 @@ First time only: `pip install -r requirements.txt`. Type `quit` to leave the cha
 | File | What it does |
 |---|---|
 | `chat.py` | Talk to the Matrix in the terminal |
+| `rename_panel.py` | Rename panel: change names shown for the assistant, agents and services (saved in `matrix_names.json`) |
+| `matrix/names.py` | Loads/saves/checks the names in `matrix_names.json` |
 | `matrix/agents.py` | Who's who. **Where you add new agents** (see ROADMAP Zone 1) |
 | `matrix/graph.py` | Wires the agents together automatically from `agents.py` |
 | `matrix/llm.py` | Talks to Grok, Gemini or Claude (or mock mode) |
 | `matrix/config.py` | Settings, read from `.env` |
 | `tests/test_smoke.py` | Automatic checks (`pytest`) |
 | `demo.py`, `matrix/api.py`, `n8n/`, `docker-compose.yml`, `Dockerfile`, `postgres-init/` | Built earlier for a later server/phone setup. Not needed now |
+
+## Rename panel (change what things are called)
+```
+python rename_panel.py
+```
+Your browser opens a page (http://127.0.0.1:8765, only reachable from this computer) listing your assistant, the agents, and the services. Change a name, description, color or icon, then press **Save**. **Reset to defaults** puts everything back (Stuart, SUNDAY, STEWARD, ...). Press Ctrl+C in the Command Prompt window to close the panel.
+
+- Names are saved in `matrix_names.json`. If that file is missing, the defaults are used.
+- The first row is the name you talk to: `chat.py` greets you with it, answers with it, and asks for your yes with it. Agent names show in the routing lines (`SHOW_ROUTING=1`).
+- Only the names on screen change. Inside, the Matrix still uses the fixed IDs (SUNDAY, TAPER, ...), so nothing breaks. Rules: 1 to 40 characters, no two the same.
+- New agents added to `matrix/agents.py` show up in the panel automatically.
+- The future 3D view can read the same data as JSON at http://127.0.0.1:8765/names.
 
 ## Switching the AI brain
 In `.env` (plain `KEY=value` lines, no comments on the same line), change one line: `LLM_PROVIDER=xai`, `LLM_PROVIDER=gemini`, or `LLM_PROVIDER=mock`. Keys go only in `.env`. Never paste them into chat.
