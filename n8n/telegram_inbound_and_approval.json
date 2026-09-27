@@ -1,0 +1,400 @@
+{
+  "name": "Cross Coat Matrix - Telegram (inbound + approvals)",
+  "nodes": [
+    {
+      "parameters": {
+        "updates": [
+          "message",
+          "callback_query"
+        ],
+        "additionalFields": {}
+      },
+      "id": "3a2dcba8-1a86-4a3b-ad9d-b77efc42ccc1",
+      "name": "Telegram Trigger",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        300
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "REPLACE",
+          "name": "Cross Coat Telegram Bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "2b6018a2-3081-4c7d-a8df-6b1d3ea59fb1",
+              "leftValue": "={{ String(($json.message || $json.callback_query).from.id) }}",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              },
+              "rightValue": "REPLACE_WITH_OWNER_TELEGRAM_ID"
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "1b39a54d-bdba-4070-bce9-d2758a227652",
+      "name": "Owner Only?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        220,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "0fe0d79a-05cd-4fca-9bd8-45f279bf923a",
+              "leftValue": "={{ !!$json.callback_query }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "f42ed9ee-eb00-4991-91db-c43bc59aed0d",
+      "name": "Button Press?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        440,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://agent:8000/approve",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Matrix-Key",
+              "value": "REPLACE_WITH_MATRIX_API_KEY"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ thread_id: $json.callback_query.data.split('|')[1], decision: $json.callback_query.data.split('|')[0], approver_id: String($json.callback_query.from.id) }) }}",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "id": "bd0767d4-4640-4906-a73b-5987d2be4385",
+      "name": "Call /approve",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        660,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "callback",
+        "queryId": "={{ $('Telegram Trigger').item.json.callback_query.id }}",
+        "additionalFields": {
+          "text": "Got it"
+        }
+      },
+      "id": "b940368f-57cb-4008-8d76-072e6af52110",
+      "name": "Answer Button",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        880,
+        160
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "REPLACE",
+          "name": "Cross Coat Telegram Bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Telegram Trigger').item.json.callback_query.message.chat.id }}",
+        "text": "={{ $('Call /approve').item.json.reply }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "id": "5e17df39-363e-4afd-9d79-fdad020100fd",
+      "name": "Send Approval Result",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1100,
+        160
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "REPLACE",
+          "name": "Cross Coat Telegram Bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://agent:8000/inbound",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Matrix-Key",
+              "value": "REPLACE_WITH_MATRIX_API_KEY"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ text: $json.message.text || '', source: 'telegram', chat_id: String($json.message.chat.id), user_id: String($json.message.from.id) }) }}",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "id": "3a8a5830-a150-452d-b209-dd7017ecbef1",
+      "name": "Call /inbound",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        660,
+        440
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "a75f713d-f4b2-4574-9187-263c1db1f934",
+              "leftValue": "={{ $json.status }}",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              },
+              "rightValue": "needs_approval"
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "46a5c626-699b-4b7e-a43f-65668ec82146",
+      "name": "Needs Approval?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        880,
+        440
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Telegram Trigger').item.json.message.chat.id }}",
+        "text": "={{ '🔔 ' + $json.question + '\\n\\nDraft:\\n' + $json.draft }}",
+        "additionalFields": {
+          "appendAttribution": false
+        },
+        "replyMarkup": "inlineKeyboard",
+        "inlineKeyboard": {
+          "rows": [
+            {
+              "row": {
+                "buttons": [
+                  {
+                    "text": "YES - approve",
+                    "additionalFields": {
+                      "callback_data": "={{ 'yes|' + $json.thread_id }}"
+                    }
+                  },
+                  {
+                    "text": "NO - cancel",
+                    "additionalFields": {
+                      "callback_data": "={{ 'no|' + $json.thread_id }}"
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "id": "1c1edef4-3238-4146-9d16-5b5cc8226230",
+      "name": "Ask Owner (Yes/No)",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1100,
+        360
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "REPLACE",
+          "name": "Cross Coat Telegram Bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Telegram Trigger').item.json.message.chat.id }}",
+        "text": "={{ $json.reply }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "id": "a6d98410-469d-4757-b52a-442f53ba9b1d",
+      "name": "Send Reply",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1100,
+        520
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "REPLACE",
+          "name": "Cross Coat Telegram Bot"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Telegram Trigger": {
+      "main": [
+        [
+          {
+            "node": "Owner Only?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Owner Only?": {
+      "main": [
+        [
+          {
+            "node": "Button Press?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Button Press?": {
+      "main": [
+        [
+          {
+            "node": "Call /approve",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Call /inbound",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call /approve": {
+      "main": [
+        [
+          {
+            "node": "Answer Button",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Answer Button": {
+      "main": [
+        [
+          {
+            "node": "Send Approval Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call /inbound": {
+      "main": [
+        [
+          {
+            "node": "Needs Approval?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Needs Approval?": {
+      "main": [
+        [
+          {
+            "node": "Ask Owner (Yes/No)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Edmonton"
+  },
+  "active": false,
+  "pinData": {}
+}

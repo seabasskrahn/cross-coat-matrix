@@ -1,0 +1,77 @@
+# Brings up: Postgres + n8n + the agent service (+ optional Cloudflare Tunnel).
+#   docker compose up -d                      -> postgres, n8n, agent
+#   docker compose --profile tunnel up -d     -> also the Cloudflare Tunnel
+# Update monthly: bump the n8n tag below, then `docker compose pull && docker compose up -d`.
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: n8n
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+      - ./postgres-init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d n8n"]
+      interval: 10s
+      retries: 5
+
+  n8n:
+    image: n8nio/n8n:2.41.3   # pinned; check https://github.com/n8n-io/n8n/releases monthly
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DB_TYPE: postgresdb
+      DB_POSTGRESDB_HOST: postgres
+      DB_POSTGRESDB_DATABASE: n8n
+      DB_POSTGRESDB_USER: ${POSTGRES_USER}
+      DB_POSTGRESDB_PASSWORD: ${POSTGRES_PASSWORD}
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY}
+      N8N_HOST: ${N8N_HOST}
+      N8N_PROTOCOL: https
+      WEBHOOK_URL: https://${N8N_HOST}/
+      GENERIC_TIMEZONE: America/Edmonton
+      TZ: America/Edmonton
+      N8N_RUNNERS_ENABLED: "true"
+      N8N_DIAGNOSTICS_ENABLED: "false"
+    ports:
+      - "127.0.0.1:5678:5678"   # only reachable from the server itself; the public gets in via the tunnel
+    volumes:
+      - n8n_data:/home/node/.n8n
+
+  agent:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      LLM_PROVIDER: ${LLM_PROVIDER:-mock}
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.5-flash}
+      CLAUDE_MODEL: ${CLAUDE_MODEL:-claude-sonnet-4-5}
+      MATRIX_API_KEY: ${MATRIX_API_KEY}
+      OWNER_TELEGRAM_ID: ${OWNER_TELEGRAM_ID}
+      TIMEZONE: America/Edmonton
+      CHECKPOINT_DB_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/matrix
+    ports:
+      - "127.0.0.1:8000:8000"   # n8n reaches it at http://agent:8000 on the internal network
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    profiles: ["tunnel"]
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN}
+    depends_on:
+      - n8n
+
+volumes:
+  pg_data:
+  n8n_data:

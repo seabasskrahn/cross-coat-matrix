@@ -1,0 +1,296 @@
+{
+  "name": "Cross Coat Matrix - Slack inbound",
+  "nodes": [
+    {
+      "parameters": {
+        "trigger": [
+          "message"
+        ],
+        "watchWorkspace": true,
+        "options": {}
+      },
+      "id": "75c8b7fa-4d1f-45f6-ab3d-a805305e6c29",
+      "name": "Slack Trigger",
+      "type": "n8n-nodes-base.slackTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        300
+      ],
+      "credentials": {
+        "slackApi": {
+          "id": "REPLACE",
+          "name": "Cross Coat Slack"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "a58e6aa0-c2ce-4beb-b0cd-9d31f05d7bea",
+              "leftValue": "={{ !$json.bot_id }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "2108a378-ef9d-4267-8422-bd3d10526a44",
+      "name": "Not A Bot?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        220,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://agent:8000/inbound",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Matrix-Key",
+              "value": "REPLACE_WITH_MATRIX_API_KEY"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ text: $json.text || '', source: 'slack', chat_id: $json.channel, user_id: $json.user }) }}",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "id": "9a1ae6ba-88be-4263-95e3-3ac5f8067b74",
+      "name": "Call /inbound",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        440,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "02e52da5-cef1-4eb2-902d-9c9e7407a019",
+              "leftValue": "={{ $json.status }}",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              },
+              "rightValue": "needs_approval"
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "5a19f12f-2652-43d7-9227-c2ffe84e6151",
+      "name": "Needs Approval?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        660,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "REPLACE_WITH_OWNER_TELEGRAM_ID",
+        "text": "={{ '🔔 ' + $json.question + '\\n\\nDraft:\\n' + $json.draft }}",
+        "additionalFields": {
+          "appendAttribution": false
+        },
+        "replyMarkup": "inlineKeyboard",
+        "inlineKeyboard": {
+          "rows": [
+            {
+              "row": {
+                "buttons": [
+                  {
+                    "text": "YES - approve",
+                    "additionalFields": {
+                      "callback_data": "={{ 'yes|' + $json.thread_id }}"
+                    }
+                  },
+                  {
+                    "text": "NO - cancel",
+                    "additionalFields": {
+                      "callback_data": "={{ 'no|' + $json.thread_id }}"
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "id": "b28e3170-aa8b-40a6-8c4a-58b61d93b0e2",
+      "name": "Ask Owner on Telegram",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        880,
+        200
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "REPLACE",
+          "name": "Cross Coat Telegram Bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "={{ $('Slack Trigger').item.json.channel }}",
+          "mode": "id"
+        },
+        "text": "Waiting for the owner's approval on Telegram.",
+        "otherOptions": {
+          "includeLinkToWorkflow": false
+        }
+      },
+      "id": "601ccc54-9079-4a98-ae25-62c6595cd64b",
+      "name": "Slack: Waiting",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.3,
+      "position": [
+        1100,
+        200
+      ],
+      "credentials": {
+        "slackApi": {
+          "id": "REPLACE",
+          "name": "Cross Coat Slack"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "={{ $('Slack Trigger').item.json.channel }}",
+          "mode": "id"
+        },
+        "text": "={{ $('Call /inbound').item.json.reply }}",
+        "otherOptions": {
+          "includeLinkToWorkflow": false
+        }
+      },
+      "id": "0331f024-d51b-4714-9a25-262400600ae5",
+      "name": "Slack: Reply",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.3,
+      "position": [
+        880,
+        400
+      ],
+      "credentials": {
+        "slackApi": {
+          "id": "REPLACE",
+          "name": "Cross Coat Slack"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Slack Trigger": {
+      "main": [
+        [
+          {
+            "node": "Not A Bot?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Not A Bot?": {
+      "main": [
+        [
+          {
+            "node": "Call /inbound",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Call /inbound": {
+      "main": [
+        [
+          {
+            "node": "Needs Approval?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Needs Approval?": {
+      "main": [
+        [
+          {
+            "node": "Ask Owner on Telegram",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Slack: Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ask Owner on Telegram": {
+      "main": [
+        [
+          {
+            "node": "Slack: Waiting",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Edmonton"
+  },
+  "active": false,
+  "pinData": {}
+}
