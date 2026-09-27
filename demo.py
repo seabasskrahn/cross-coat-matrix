@@ -20,7 +20,7 @@ def show(result: dict):
 
 def main():
     auto = "--auto" in sys.argv
-    print(f"Cross Coat Matrix demo (LLM_PROVIDER={config.LLM_PROVIDER})\n")
+    print(f"Stuart demo (LLM_PROVIDER={config.LLM_PROVIDER})\n")
     graph = build_graph()
     for text in MESSAGES:
         print(f"> MESSAGE: {text}")
