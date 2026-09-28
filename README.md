@@ -75,6 +75,20 @@ powershell -Command "Stop-Process -Id (Get-Content logs\keeper_worker.pid)"
 Use `python -m matrix.keeper_worker --once` for a single sweep. You can view and answer jobs in
 pgAdmin 4 (set an approval's `status` to `yes` or `no`).
 
+## Keeper dashboard
+
+```
+run_dashboard.bat
+```
+(or `python keeper_dashboard.py`) opens a local page at http://127.0.0.1:8766 showing every Keeper
+job: a count per status at the top, then each job with a badge (Working, Waiting on you, Closed,
+Halted), its tasks, agents and time. Click a job to see its tasks, drafts, approval thread and step
+log. It updates every 10 seconds, with times in am/pm local time.
+
+On a pending approval, **Approve** or **Reject** (or type an answer to a question) saves your answer
+on that approval only. The Keeper worker picks it up within 10 seconds and closes or continues the
+job. The dashboard never sends anything. Close the window (or press Ctrl+C) to stop it.
+
 ## Working with Grok Bot
 
 Seabass builds the Matrix by talking to **Grok Bot**, his AI assistant, by chat or voice call.
