@@ -12,6 +12,13 @@ deletes or decides without your yes. Keys live only in `.env`.
 > on Sep 27, 2026. Model costs depend on how much the Matrix is used and will be replaced with
 > real figures once we have a few weeks of usage.
 
+## For AIs reading this
+
+You are joining a project that is partway built. Treat Phase 0 as fact (it exists in code) and
+Phases 1 to 6 as the agreed plan, not as finished work. Work on the earliest phase that isn't done,
+keep every change behind Seabass's approval, and check the "Still open" table before assuming a
+decision has been made. The plain-language overview is [MIND_MAP_SIMPLE.md](MIND_MAP_SIMPLE.md).
+
 ## The whole road at a glance
 
 ```
