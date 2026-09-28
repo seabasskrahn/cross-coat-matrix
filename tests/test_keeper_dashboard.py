@@ -57,7 +57,7 @@ def test_status_tolerates_missing_or_bad_fields():
 
 def test_summary_counts():
     jobs = [job(1, ["job closed"]), job(2, ["approval asked"], [yes_no()]), job(3), job(4, ["error x"])]
-    assert kd.summary(jobs) == {kd.WAITING: 1, kd.WORKING: 1, kd.HALTED: 1, kd.CLOSED: 1}
+    assert kd.summary(jobs) == {kd.WAITING: 1, kd.WORKING: 1, kd.PAUSED: 0, kd.HALTED: 1, kd.CLOSED: 1}
 
 
 # ---------- times ----------

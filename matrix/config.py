@@ -25,6 +25,11 @@ OWNER_TELEGRAM_ID = os.getenv("OWNER_TELEGRAM_ID", "")
 CHECKPOINT_DB_URL = os.getenv("CHECKPOINT_DB_URL", "")
 
 TIMEZONE = os.getenv("TIMEZONE", "America/Edmonton")  # La Crete, Alberta
+# Grace window: the Keeper worker waits this long after the owner answers an approval (yes, no or
+# a written answer) before acting on it, so a mis-click can be undone. KEEPER_REJECT_GRACE_SECONDS
+# is accepted as an older name for the same setting.
+ANSWER_GRACE_SECONDS = float(os.getenv("KEEPER_ANSWER_GRACE_SECONDS",
+                                       os.getenv("KEEPER_REJECT_GRACE_SECONDS", "30")))
 MAX_TASKS_PER_SWEEP = 5          # Keeper worker: max tasks drafted per job run (circuit breaker)
 MAX_TASKS_PER_MESSAGE = int(os.getenv("MAX_TASKS_PER_MESSAGE", "3"))  # splitter hard cap per message
 

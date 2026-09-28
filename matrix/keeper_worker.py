@@ -4,14 +4,21 @@ The envelope rules live in matrix/envelope.py and the database code in matrix/ke
 (shared with the main Matrix flow). This file is just the loop and the job-processing steps.
 
 What it does, every POLL seconds (default 10, env KEEPER_POLL_SECONDS):
-  1. Finds pending jobs: no `job closed` tag, no approval with status "pending" (those WAIT),
-     and not halted (last step_log tag is `circuit breaker`, `dependency cycle` or `error: ...`).
+  1. Finds pending jobs: not closed, no approval with status "pending" (those WAIT), not halted
+     (last step_log tag is `circuit breaker`, `dependency cycle` or `error: ...`), and no owner
+     answer younger than the grace window (KEEPER_ANSWER_GRACE_SECONDS, default 30), so a
+     mis-click can be undone from the dashboard before anything happens.
   2. Claims one safely (SELECT ... FOR UPDATE SKIP LOCKED + advisory lock), logs `picked up`.
      Jobs the main Matrix flow is working on are locked, so they're skipped.
   3. Runs its tasks in dependency order. Each agent writes a DRAFT ONLY (never sends, pays,
      deletes or acts in the real world), saved as-is to `drafts`.
   4. Asks the owner "Approve these drafts?" in `approvals` and stops. It never approves itself.
-     When the owner answers yes/no, the next poll logs `approval answered` and `job closed`.
+     When the owner answers yes/no, the first poll after the grace window logs `approval answered`,
+     then drafts any remaining tasks (and asks again) or logs `job closed` (a "no" logs `rejected`
+     and `job closed`). An `approval reopened` step (dashboard Undo / Reopen) cancels that answer:
+     the job waits on the approval again, even if it had been closed by the rejection.
+  Switches (dashboard): a job with a `paused` step (no `resumed` after it) is skipped, and when the
+  global switch in logs/keeper_settings.json is Off the worker stays alive but claims nothing.
 
 Every change is written to the database immediately, so a crash loses nothing.
 A halted job is left alone for the owner; to let the worker try again, append any step_log entry
@@ -32,7 +39,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import config, envelope as env
+from . import config, envelope as env, keeper_settings
 from .keeper_store import PgStore
 
 # ---------- settings ----------
@@ -67,6 +74,7 @@ class Sweep:
     max_tasks_per_job: int = MAX_TASKS_PER_JOB_RUN
     llm_calls: int = 0
     processed: list = field(default_factory=list)
+    off: bool = False  # the global On/Off switch was Off: nothing claimed
 
 
 def process_job(job: dict, store, brain, sweep: Sweep) -> str:
@@ -82,8 +90,7 @@ def process_job(job: dict, store, brain, sweep: Sweep) -> str:
 
         # Approvals the owner has answered since we last looked.
         approvals = env.as_list(job.get("approvals"))
-        logged = {e.get("approval") for e in env.as_list(job.get("step_log"))
-                  if isinstance(e, dict) and e.get("tag") == env.APPROVAL_ANSWERED}
+        logged = env.acted_approvals(job)  # an `approval reopened` step un-logs its approval
         for i, a in enumerate(approvals):
             if isinstance(a, dict) and i not in logged and env.status_of(a) != env.PENDING:
                 add(env.APPROVAL_ANSWERED, approval=i, status=env.status_of(a), type=env.exchange_tag(a))
@@ -154,6 +161,9 @@ def process_job(job: dict, store, brain, sweep: Sweep) -> str:
 
 def sweep_once(store, brain=default_brain, sweep: Sweep | None = None) -> Sweep:
     sweep = sweep or Sweep()
+    if not keeper_settings.worker_on():
+        sweep.off = True  # switched Off from the dashboard: stay alive, claim nothing
+        return sweep
     for row in store.candidates():
         if not env.is_pending(row):
             continue
@@ -205,11 +215,16 @@ def main(argv=None) -> int:
     log.info("keeper worker starting (pid %s, every %ss, LLM=%s, max %s LLM calls/sweep, %s tasks/job)",
              os.getpid(), args.interval, config.LLM_PROVIDER, MAX_LLM_CALLS_PER_SWEEP, MAX_TASKS_PER_JOB_RUN)
     store = None
+    was_off = None
     while True:
         try:
             if store is None:
                 store = PgStore(config.CHECKPOINT_DB_URL)
             result = sweep_once(store)
+            if result.off != was_off:
+                if result.off or was_off is not None:
+                    log.info("worker switch is %s", "OFF: claiming no jobs" if result.off else "ON")
+                was_off = result.off
             if result.processed:
                 log.info("sweep done: %s", result.processed)
         except Exception:  # noqa: BLE001 - keep running; reconnect / re-detect the table next time

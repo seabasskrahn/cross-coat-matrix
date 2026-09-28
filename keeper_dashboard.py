@@ -5,9 +5,16 @@ Run:  python keeper_dashboard.py            (opens http://127.0.0.1:8766 in your
 Stop: press Ctrl+C in the Command Prompt window.
 
 Only reachable from this computer (bound to 127.0.0.1). No extra installs needed.
-Reads the `jobs` table through CHECKPOINT_DB_URL in .env. The only thing it ever changes is the
-status (and answer text) of one pending approval when you click Approve / Reject / Send answer.
-The Keeper worker then logs `approval answered` and closes or continues the job.
+Reads the `jobs` table through CHECKPOINT_DB_URL in .env. The only thing it ever changes is one
+approval: its status (and answer text) when you click Approve / Reject / Send answer, or back to
+pending (plus an `approval reopened` step) when you click Undo (within the grace window, before the
+worker acts) or Reopen (on a job your Reject closed). Change to Yes (after a Reject) logs
+`approval reopened` and sets the answer to yes with a fresh answered_at; Change to No (after an
+Approve, e.g. on a job that closed) does the same with no, and the worker then marks it rejected.
+Switches: the header has the global Keeper worker On/Off switch (logs/keeper_settings.json; Off =
+the worker stays alive but claims nothing) and each open job has its own On/Paused switch
+(`paused` / `resumed` step_log entries; the worker skips paused jobs). The Keeper worker waits out the grace window
+(KEEPER_ANSWER_GRACE_SECONDS, default 30), then logs `approval answered` and closes or continues.
 GET /api/jobs and /api/job/<id> return JSON (for later tools).
 """
 import argparse
@@ -20,6 +27,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from matrix import config
 from matrix import keeper_dashboard as kd
+from matrix import keeper_settings
 
 HOST = "127.0.0.1"
 DEFAULT_PORT = 8766
@@ -113,10 +121,10 @@ class Handler(BaseHTTPRequestHandler):
         m = re.fullmatch(r"/(api/)?job/(\d{1,12})", path)
         try:
             if path in ("/", "/index.html"):
-                return self._html(200, kd.render_list(self.backend.run(kd.list_jobs)))
+                return self._html(200, kd.render_list(self.backend.run(kd.list_jobs), settings=keeper_settings.load()))
             if path == "/api/jobs":
                 jobs = self.backend.run(kd.list_jobs)
-                return self._json(200, {"summary": kd.summary(jobs),
+                return self._json(200, {"summary": kd.summary(jobs), "settings": keeper_settings.load(),
                                         "jobs": [{**j, "status": kd.job_status(j)} for j in jobs]})
             if m:
                 job = self.backend.run(kd.get_job, int(m.group(2)))
@@ -124,7 +132,7 @@ class Handler(BaseHTTPRequestHandler):
                     return self._json(404, {"error": "Not found"}) if job is None else \
                         self._json(200, {**job, "status": kd.job_status(job)})
                 return self._html(404, kd.render_not_found(m.group(2))) if job is None else \
-                    self._html(200, kd.render_job(job))
+                    self._html(200, kd.render_job(job, settings=keeper_settings.load()))
         except NoDatabase as err:
             if path.startswith("/api/"):
                 return self._json(503, {"error": str(err)})
@@ -140,21 +148,46 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(403, {"error": "Forbidden"})
         if not self.headers.get("Content-Type", "").startswith("application/json"):
             return self._json(415, {"error": "Send JSON"})
-        if self.path.split("?", 1)[0] != "/api/answer":
+        path = self.path.split("?", 1)[0]
+        if path not in ("/api/answer", "/api/undo", "/api/reopen", "/api/change-to-yes", "/api/change-to-no",
+                        "/api/pause", "/api/worker"):
             return self._json(404, {"error": "Not found"})
         length = int(self.headers.get("Content-Length") or 0)
         if length > MAX_BODY:
             return self._json(413, {"error": "Too big"})
         try:
             data = json.loads((self.rfile.read(length) if length else b"{}").decode("utf-8"))
-            job_id, index = data["job"], data["index"]
-            if not all(isinstance(v, int) and not isinstance(v, bool) for v in (job_id, index)):
+            if path == "/api/worker":
+                if not isinstance(data.get("on"), bool):
+                    raise ValueError
+                return self._json(200, {"ok": True, "settings": keeper_settings.set_worker_on(data["on"])})
+            job_id = data["job"]
+            if path == "/api/pause":
+                if not isinstance(data.get("paused"), bool) or not isinstance(job_id, int) or isinstance(job_id, bool):
+                    raise ValueError
+                paused = self.backend.run(kd.set_paused, job_id, data["paused"])
+                return self._json(200, {"ok": True, "paused": paused})
+            optional = path in ("/api/reopen", "/api/change-to-yes", "/api/change-to-no")  # index may be left out
+            index = data.get("index") if optional else data["index"]
+            is_int = lambda v: isinstance(v, int) and not isinstance(v, bool)  # noqa: E731
+            if not is_int(job_id) or not (is_int(index) or (index is None and optional)):
                 raise ValueError
             action, text = str(data.get("action", "")), str(data.get("text", "") or "")
+        except kd.AnswerError as err:  # (a ValueError, so it must come first)
+            return self._json(err.code, {"error": str(err)})
+        except NoDatabase as err:
+            return self._json(503, {"error": str(err)})
         except (ValueError, KeyError, TypeError, UnicodeDecodeError, AttributeError):
             return self._json(400, {"error": "That wasn't valid data"})
+        except OSError as err:  # settings file couldn't be written
+            return self._json(500, {"error": f"Couldn't save the switch ({type(err).__name__})."})
         try:
-            item = self.backend.run(kd.answer_approval, job_id, index, action, text)
+            if path == "/api/answer":
+                item = self.backend.run(kd.answer_approval, job_id, index, action, text)
+            else:
+                mode = {"/api/undo": kd.UNDO, "/api/reopen": kd.REOPEN,
+                        "/api/change-to-yes": kd.CHANGE_TO_YES, "/api/change-to-no": kd.CHANGE_TO_NO}[path]
+                item = self.backend.run(kd.reopen_approval, job_id, index, mode)
         except kd.AnswerError as err:
             return self._json(err.code, {"error": str(err)})
         except NoDatabase as err:

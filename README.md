@@ -89,6 +89,17 @@ On a pending approval, **Approve** or **Reject** (or type an answer to a questio
 on that approval only. The Keeper worker picks it up within 10 seconds and closes or continues the
 job. The dashboard never sends anything. Close the window (or press Ctrl+C) to stop it.
 
+**Mis-click?** After any answer you have 30 seconds (`KEEPER_ANSWER_GRACE_SECONDS` in `.env`)
+to press **Undo**, or to flip it with **Change to Yes** / **Change to No**. The worker waits until
+then. After that, a job your Reject closed shows **Change to Yes** and **Reopen** (ask me again),
+and a job you approved shows **Change to No**. That only records the change and marks the job
+rejected. Drafts already made stay as they are, and nothing was ever sent.
+
+**On/Off switches.** The switch at the top turns the Keeper worker On or Off. When it's Off, the
+worker keeps running but picks up nothing (saved in `logs\keeper_settings.json`). Each open job
+also has its own switch: a paused job is skipped until you switch it back on, and you can still
+answer its approvals while it's paused.
+
 ## Working with Grok Bot
 
 Seabass builds the Matrix by talking to **Grok Bot**, his AI assistant, by chat or voice call.
