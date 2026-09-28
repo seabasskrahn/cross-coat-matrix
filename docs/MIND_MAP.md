@@ -62,9 +62,9 @@ flowchart TD
             K2["Echo<br/>(Gemini)"]
             K3["Vault<br/>(GitHub)"]
             K4["Scout<br/>(Tavily web search)"]
+            K5["Clerk<br/>(file tool)"]
         end
         subgraph PLANNED["Planned, not yet assigned"]
-            P1["Clerk<br/>(file tool)"]
             P2["Relay<br/>(n8n)"]
             P3["Keeper<br/>(Postgres)"]
             P4["Reserve<br/>(Claude)"]
