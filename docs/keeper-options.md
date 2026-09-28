@@ -6,6 +6,16 @@ this page is for deciding.
 
 Neon figures are from neon.com (plans and pricing pages), checked Sep 27, 2026.
 
+## Option 1: Neon cloud <img src="https://neon.com/brand/neon-logomark-dark-color.svg" alt="Neon logo" height="36" align="absmiddle">
+
+A free Postgres database hosted online by Neon (neon.com). Always reachable, nothing installed on your PC.
+
+## Option 2: Postgres on your own PC <img src="https://www.postgresql.org/media/img/about/press/elephant.png" alt="PostgreSQL logo" height="36" align="absmiddle">
+
+The official PostgreSQL software (postgresql.org) installed on your Windows computer. Private, but only on while the PC is on.
+
+## Pros and cons
+
 ```mermaid
 mindmap
   root((Keeper options))
@@ -41,7 +51,7 @@ mindmap
 
 ## Side by side
 
-| Factor | Option 1: Neon cloud | Option 2: Local on your PC |
+| Factor | <img src="https://neon.com/brand/neon-logomark-dark-color.svg" alt="Neon" height="18"> Option 1: Neon cloud | <img src="https://www.postgresql.org/media/img/about/press/elephant.png" alt="PostgreSQL" height="18"> Option 2: Local on your PC |
 | --- | --- | --- |
 | Cost | $0. Free plan, no credit card, no expiry. Paid plan is pay-as-you-go only if you outgrow it. | $0. Postgres is free software. |
 | Available when your PC is off | Yes. | No. |
