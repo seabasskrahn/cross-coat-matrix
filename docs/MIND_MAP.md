@@ -4,6 +4,31 @@ This is the planning picture of the Matrix, not a description of what is coded t
 The Central Core is the skyscraper in the middle of everything. Service keys are shown
 by their nicknames. Live keys are in `.env` and working; planned keys are not assigned yet.
 
+## 3D layout: the city from above
+
+The Central Core skyscraper stands in the exact centre of the Matrix. Every other
+building stands in a ring around it, at equal distance, so the Core can reach each one
+directly. Going clockwise from the front door: Field Operations, Finance and Revenue
+Defense, Quality and Blueprint, then the planned buildings for Film and Content, Email,
+Marketing and Advertising, Calendar, Deep Research, and the Training Grounds. Planned
+buildings stand in the ring switched off until they are opened.
+
+```mermaid
+mindmap
+  root((CENTRAL CORE skyscraper))
+    Field Operations
+    Finance and Revenue Defense
+    Quality and Blueprint
+    Film and Content - planned
+    Email - planned
+    Marketing and Advertising - planned
+    Calendar - planned
+    Deep Research - planned
+    Training Grounds - planned
+```
+
+## Chain of command: who reports to whom
+
 ```mermaid
 flowchart TD
     CEO["SEABASS — CEO<br/>Neo, the One<br/>Final say on everything"]
