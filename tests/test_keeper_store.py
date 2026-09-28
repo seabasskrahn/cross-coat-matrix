@@ -85,11 +85,18 @@ def test_rejection_logs_rejected(store, graph):
 
 
 def test_multi_task_message_numbered_and_each_drafted(store, graph):
-    r = runner.start(graph, "punch item 1; punch item 2; punch item 3")
+    r = runner.start(graph, "tailgate briefing for the crew; Silverado oil change; quote the Reimer reno")
     row = store.rows[r["job_id"]]
     assert [t["num"] for t in row["tasks"]] == [1, 2, 3]
-    assert [d["task"] for d in row["drafts"]] == [1, 2, 3]
+    assert [(d["task"], d["agent"]) for d in row["drafts"]] == [(1, "TAPER"), (2, "ARMOR"), (3, "MARGIN")]
     assert tag_list(row).count("agent assigned") == 3 and tag_list(row).count("draft saved") == 3
+
+
+def test_related_parts_merge_into_one_saved_task(store, graph):
+    r = runner.start(graph, "punch item 1; punch item 2; punch item 3")
+    row = store.rows[r["job_id"]]
+    assert len(row["tasks"]) == 1 and len(row["drafts"]) == 1
+    assert "tasks merged" in tag_list(row)
 
 
 def test_graph_error_is_logged_and_halts(store, graph, monkeypatch):

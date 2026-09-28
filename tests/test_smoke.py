@@ -49,11 +49,20 @@ def test_steward_route_and_ledger_always_gated():
     assert r2["specialist"] == "LEDGER" and r2["status"] == "needs_approval"
 
 
-def test_max_five_tasks():
+def test_same_specialist_parts_become_one_task():
     text = "; ".join(f"punch item {i}" for i in range(1, 9))
     r = client.post("/inbound", json={"text": text}).json()
-    assert any(e["tag"] == "task cap" and "only first 5 kept" in e["detail"] for e in r["step_log"])
-    assert [t["num"] for t in r["tasks"]] == [1, 2, 3, 4, 5]
+    assert any(e["tag"] == "tasks merged" and e["detail"] == "8 parts -> 1 task(s)" for e in r["step_log"])
+    assert len(r["tasks"]) == 1 and len(r["drafts"]) == 1
+    assert all(f"punch item {i}" in r["tasks"][0]["title"] for i in range(1, 9))  # nothing dropped
+
+
+def test_max_three_tasks_per_message():
+    text = ("tailgate briefing; Silverado tire rotation; CCA on the compressor; quote the reno; "
+            "invoice Dyck; takeoff for Reimer")
+    r = client.post("/inbound", json={"text": text}).json()
+    assert len(r["tasks"]) <= 3 and len(r["drafts"]) <= 3
+    assert any(e["tag"] == "tasks capped" for e in r["step_log"])
 
 
 def test_approve_unknown_thread_404():

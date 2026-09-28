@@ -216,3 +216,11 @@ def test_legacy_draft_without_task_number_counts_for_first_task():
     kw.sweep_once(store, brain)
     assert [c[0] for c in brain.calls] == ["SUNDAY"]
     assert tag_list(store.rows[2])[-1] == "approval asked"
+
+
+def test_batched_draft_covers_all_its_tasks():
+    tasks = [{"num": 1, "title": "A", "depends_on": []}, {"num": 2, "title": "B", "depends_on": []}]
+    drafts = [{"task": 1, "covers": [1, 2], "agent": "BEZEL", "output": "both"}]
+    store, brain = MemoryStore([job(tasks=tasks, drafts=drafts)]), FakeBrain()
+    kw.sweep_once(store, brain)
+    assert brain.calls == [] and tag_list(store.rows[2])[-1] == "approval asked"

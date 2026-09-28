@@ -28,7 +28,8 @@ STARTER_TAGS = (MESSAGE_RECEIVED, TASK_CREATED, AGENT_ASSIGNED, DRAFT_SAVED,
 # Freeform tags used by the code ("anything unusual gets a freeform tag").
 PICKED_UP = "picked up"
 ROUTED = "routed"
-TASK_CAP = "task cap"
+TASKS_MERGED = "tasks merged"
+TASKS_CAPPED = "tasks capped"
 OUTWARD_ACTION = "outward action"
 NOT_WIRED_UP = "not wired up"
 NOT_IN_ROSTER = "agent not in roster"
@@ -209,12 +210,27 @@ def brain(name: str, role: str, text: str, mock: str | None = None) -> str:
     return llm.write(who, text, mock)
 
 
+def batch_prompt(message: str, batch: list[dict], total_tasks: int, extra: str = "") -> str:
+    """Prompt for one draft call covering one or more tasks for the same agent."""
+    if len(batch) == total_tasks:
+        return f"{message}{extra}"  # this call covers the whole job: just give it the message
+    if len(batch) == 1:
+        return task_prompt(message, batch[0], extra)
+    lines = "\n".join(f"#{task_num(t, 0)}: {t.get('title', '')}" for t in batch)
+    return f"Job: {message}\nYour tasks (answer each, numbered):\n{lines}{extra}"
+
+
+def draft_task_nums(d: dict) -> list:
+    """Task numbers a draft covers (a batched draft lists them in "covers")."""
+    return list(d.get("covers") or [d.get("task")])
+
+
 def combined_output(drafts: list[dict]) -> str:
     """All draft outputs as one reply (single draft = its output unchanged)."""
     drafts = [d for d in as_list(drafts) if isinstance(d, dict)]
     if len(drafts) == 1:
         return str(drafts[0].get("output", ""))
-    return "\n\n".join(f"{d.get('task')}. {d.get('output', '')}" for d in drafts)
+    return "\n\n".join(f"{', '.join(map(str, draft_task_nums(d)))}. {d.get('output', '')}" for d in drafts)
 
 
 # ---------- display ----------

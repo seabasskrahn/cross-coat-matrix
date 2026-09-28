@@ -3,14 +3,13 @@
 Every step follows the Keeper job envelope (matrix/envelope.py) and is written to the job's row
 in the `jobs` table the moment it happens (matrix/keeper_store.py; memory if no database).
 """
-import re
 import uuid
 
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import interrupt
 
-from . import config, envelope as env
+from . import config, envelope as env, splitter
 from .agents import ALWAYS_OUTWARD, DELEGATES, OUTWARD_WORDS, SENIOR_STAFF, SPECIALISTS
 from .keeper_store import get_store
 from .state import MatrixState
@@ -37,12 +36,9 @@ def _save_field(state: MatrixState, column: str, value):
 
 # ---------- Tier 1: SUNDAY (router) ----------
 def sunday(state: MatrixState) -> dict:
-    parts = [p.strip() for p in re.split(r"[\n;]+", state["message"]) if p.strip()] or [state["message"]]
-    tasks = env.make_tasks(parts[: config.MAX_TASKS_PER_SWEEP])
-    entries = []
-    if len(parts) > config.MAX_TASKS_PER_SWEEP:
-        entries.append(step(state, env.TASK_CAP, detail=f"{len(parts)} tasks received, only first "
-                            f"{config.MAX_TASKS_PER_SWEEP} kept (max 5 per sweep)"))
+    # Few, meaty tasks: related parts merged, one task per specialist, max 3 (matrix/splitter.py).
+    tasks, notes = splitter.split(state["message"])
+    entries = [step(state, n["tag"], detail=n["detail"]) for n in notes]
     _save_field(state, "tasks", tasks)
     entries.append(step(state, env.TASK_CREATED, count=len(tasks), tasks=[t["num"] for t in tasks]))
     senior = llm.classify(state["message"], SENIOR_STAFF, "BEZEL",
@@ -64,10 +60,17 @@ def make_senior(name: str):
                             f"You are {name}, senior staff. Pick the best specialist: "
                             + "; ".join(f"{s} = {SPECIALISTS[s][0]}" for s in DELEGATES[name]))
         who = {"name": spec, "role": env.role_label(spec)}
-        tasks = [{**t, "agent": dict(who)} for t in state.get("tasks", [])]
+        # The splitter already named a specialist on each task of a multi-task message; the rest
+        # (a single-task message) go to the specialist this senior picked, as before.
+        tasks = [t if t.get("agent") else {**t, "agent": dict(who)} for t in state.get("tasks", [])]
         _save_field(state, "tasks", tasks)
-        agents = _save_field(state, "agents", [dict(who)])
-        entries = [step(state, env.AGENT_ASSIGNED, task=t["num"], agent=spec, role=who["role"], via=name)
+        team = []
+        for t in tasks:
+            if t["agent"] not in team:
+                team.append(dict(t["agent"]))
+        agents = _save_field(state, "agents", team)
+        entries = [step(state, env.AGENT_ASSIGNED, task=t["num"], agent=t["agent"]["name"],
+                        role=t["agent"]["role"], via=name if t["agent"]["name"] == spec else "splitter")
                    for t in tasks]
         return {"specialist": spec, "tasks": tasks, "agents": agents, "step_log": entries}
     node.__name__ = name.lower()
@@ -79,9 +82,13 @@ def pick_specialist(state: MatrixState) -> str:
 
 
 # ---------- Tiers 2-4: specialist stubs ----------
-def detect_outward(name: str, text: str) -> str | None:
+def detect_outward(name: str, text: str, tasks: list | None = None) -> str | None:
     if name in ALWAYS_OUTWARD:
         return ALWAYS_OUTWARD[name]
+    for t in tasks or []:  # e.g. LEDGER on any task (or merged into one) always stops for approval
+        for who in [(t.get("agent") or {}).get("name")] + list(t.get("specialists") or []):
+            if who in ALWAYS_OUTWARD:
+                return ALWAYS_OUTWARD[who]
     low = text.lower() + " "
     for kind, words in OUTWARD_WORDS.items():
         if any(w in low for w in words):
@@ -89,18 +96,36 @@ def detect_outward(name: str, text: str) -> str | None:
     return None
 
 
+def batches(tasks: list[dict], agents: list | None) -> list[tuple[str, str, list[dict]]]:
+    """Group tasks into draft calls: tasks for the same agent share ONE call, in dependency order.
+    A task only joins an earlier batch if everything it depends on is drafted by then."""
+    out, where = [], {}
+    for idx in env.topo_order(tasks):
+        task = tasks[idx]
+        agent, role, _how = env.route(task, idx, agents)
+        ready_at = max((where[d] for d in task.get("depends_on") or [] if d in where), default=-1)
+        target = next((i for i, (a, _r, _b) in enumerate(out) if a == agent and i >= ready_at), None)
+        if target is None:
+            out.append((agent, role, []))
+            target = len(out) - 1
+        out[target][2].append(task)
+        where[task["num"]] = target
+    return out
+
+
 def make_specialist(name: str):
     def node(state: MatrixState) -> dict:
         tasks = state.get("tasks") or env.make_tasks([state["message"]])
         drafts, entries = [], []
-        for idx in env.topo_order(tasks):  # dependency order; drafts only, nothing is sent
-            task = tasks[idx]
-            agent, role, _how = env.route(task, idx, state.get("agents"))
-            mock = f"[{agent} mock] Handled task {task['num']}: {task.get('title', '')}"
-            output = env.brain(agent, role, env.task_prompt(state["message"], task), mock)
-            drafts.append(_save_append(state, "drafts", env.draft(task["num"], agent, role, output)))
-            entries.append(step(state, env.DRAFT_SAVED, task=task["num"], agent=agent, role=role))
-        kind = detect_outward(name, state["message"])
+        for agent, role, batch in batches(tasks, state.get("agents")):  # drafts only, nothing is sent
+            nums = [t["num"] for t in batch]
+            mock = f"[{agent} mock] Handled task {', '.join(map(str, nums))}: " + " | ".join(
+                t.get("title", "") for t in batch)
+            output = env.brain(agent, role, env.batch_prompt(state["message"], batch, len(tasks)), mock)
+            extra = {"covers": nums} if len(nums) > 1 else {}
+            drafts.append(_save_append(state, "drafts", env.draft(nums[0], agent, role, output, **extra)))
+            entries.append(step(state, env.DRAFT_SAVED, task=nums[0], agent=agent, role=role, **extra))
+        kind = detect_outward(name, state["message"], tasks)
         action = {"kind": kind or "internal", "outward": bool(kind),
                   "summary": f"{name} wants to {kind.replace('_', ' ')}: {state['message'][:200]}" if kind
                   else "internal only (nothing leaves the system)"}

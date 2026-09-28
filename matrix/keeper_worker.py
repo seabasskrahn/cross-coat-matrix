@@ -50,9 +50,9 @@ def draft_covers(draft: dict, num: int, agent: str, first_task_for_agent: bool, 
     if not isinstance(draft, dict):
         return False
     if for_approval is not None:
-        return draft.get("task") == num and draft.get("for_approval") == for_approval
+        return num in env.draft_task_nums(draft) and draft.get("for_approval") == for_approval
     if "task" in draft:
-        return draft.get("task") == num
+        return num in env.draft_task_nums(draft)  # a batched draft covers several task numbers
     # Older hand-made drafts carry no task number: count one as the agent's first task.
     return first_task_for_agent and draft.get("agent") == agent
 
