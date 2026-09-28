@@ -1,18 +1,60 @@
 """All settings in one place. Values come from environment variables (or a .env file)."""
+import logging
 import os
 from pathlib import Path
 
-# Load a .env file if one exists next to this project (simple, no extra library needed).
-_env_file = Path(__file__).resolve().parent.parent / ".env"
-if _env_file.exists():
-    for line in _env_file.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if line and not line.startswith("#") and "=" in line:
-            key, _, value = line.partition("=")
-            os.environ.setdefault(key.strip(), value.strip())
+log = logging.getLogger("matrix.config")
 
-# "mock" = no API key, runs offline. "gemini", "claude" or "xai" (Grok) = real LLM.
-LLM_PROVIDER = os.getenv("LLM_PROVIDER", "mock").lower()
+# The brains LLM_PROVIDER (the MAIN BRAIN line at the top of .env) may name. "mock" = offline, no AI.
+VALID_PROVIDERS = ("mock", "gemini", "xai", "grok", "claude")
+
+_env_file = Path(__file__).resolve().parent.parent / ".env"
+_file_keys: set[str] = set()   # keys the .env file put into the environment (so a removed line is undone)
+
+
+def read_env_file(path: Path | None = None) -> dict[str, str]:
+    """KEY=value pairs from .env (python-dotenv if installed, else a small parser). Never logged."""
+    path = Path(path or _env_file)
+    if not path.exists():
+        return {}
+    try:
+        from dotenv import dotenv_values
+        return {k: v for k, v in dotenv_values(path, encoding="utf-8", interpolate=False).items() if k and v is not None}
+    except ImportError:
+        values = {}
+        for line in path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if line and not line.startswith("#") and "=" in line:
+                key, _, value = line.partition("=")
+                values[key.strip()] = value.strip().strip('"').strip("'")
+        return values
+
+
+def _valid_provider(value, fallback: str) -> str:
+    value = str(value or "").strip().lower()
+    if value in VALID_PROVIDERS:
+        return value
+    log.warning("LLM_PROVIDER '%s' is not valid (use %s); keeping %s", value, ", ".join(VALID_PROVIDERS), fallback)
+    return fallback
+
+
+def _int_env(name: str, current: int) -> int:
+    try:
+        return int(os.getenv(name, str(current)))
+    except ValueError:
+        log.warning("%s must be a whole number; keeping %s", name, current)
+        return current
+
+
+# Load .env once at start-up. Variables already set in the environment win (tests rely on this).
+for _k, _v in read_env_file().items():
+    if _k not in os.environ:
+        os.environ[_k] = _v
+        _file_keys.add(_k)
+
+# MAIN BRAIN. "mock" = no API key, runs offline. "gemini", "claude" or "xai" (Grok) = real LLM.
+# The Keeper worker re-reads .env every sweep (reload_env below), so a change needs no restart.
+LLM_PROVIDER = _valid_provider(os.getenv("LLM_PROVIDER", "mock"), "mock")
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")      # check current model names before use
 CLAUDE_MODEL = os.getenv("CLAUDE_MODEL", "claude-sonnet-4-5")      # check current model names before use
 XAI_MODEL = os.getenv("XAI_MODEL", "grok-4.6")                     # check current model names at docs.x.ai
@@ -48,8 +90,8 @@ def has_key(provider: str) -> bool:
 # ---------- Scout (Tavily web search, read-only) ----------
 # Used by the drafting step only when a task clearly needs outside facts. At most 1 search per task,
 # at most SCOUT_MAX_SEARCHES_PER_JOB per job (0 = Scout off). Off entirely if TAVILY_API_KEY is missing.
-SCOUT_MAX_SEARCHES_PER_JOB = int(os.getenv("SCOUT_MAX_SEARCHES_PER_JOB", "2"))
-SCOUT_MAX_RESULTS = int(os.getenv("SCOUT_MAX_RESULTS", "3"))
+SCOUT_MAX_SEARCHES_PER_JOB = _int_env("SCOUT_MAX_SEARCHES_PER_JOB", 2)
+SCOUT_MAX_RESULTS = _int_env("SCOUT_MAX_RESULTS", 3)
 
 
 def scout_key_present() -> bool:
@@ -75,3 +117,30 @@ MAX_TASKS_PER_MESSAGE = int(os.getenv("MAX_TASKS_PER_MESSAGE", "3"))  # splitter
 SUBJECT_TASK = "[MERLIN-TASK]"
 SUBJECT_LOG = "[MERLIN-LOG]"
 GMAIL_TASK_SEARCH = "subject:(MERLIN-TASK)"  # Gmail search must NOT use the square brackets
+
+
+def reload_env(path: Path | None = None) -> bool:
+    """Re-read .env (its values win, like load_dotenv(override=True)) and refresh the settings that
+    can change live: the main brain, model names, per-agent BRAIN_<AGENT> lines and the Scout cap.
+    A line removed from .env is removed from the environment too. An invalid LLM_PROVIDER keeps the
+    previous brain (warning logged). Returns True if the main brain changed. Secrets are never logged."""
+    global LLM_PROVIDER, GEMINI_MODEL, CLAUDE_MODEL, XAI_MODEL, SCOUT_MAX_SEARCHES_PER_JOB, SCOUT_MAX_RESULTS
+    values = read_env_file(path)
+    for gone in _file_keys - set(values):
+        os.environ.pop(gone, None)
+    _file_keys.clear()
+    for k, v in values.items():
+        os.environ[k] = v
+        _file_keys.add(k)
+    GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+    CLAUDE_MODEL = os.getenv("CLAUDE_MODEL", "claude-sonnet-4-5")
+    XAI_MODEL = os.getenv("XAI_MODEL", "grok-4.6")
+    DEFAULT_MODELS.update({"xai": XAI_MODEL, "grok": XAI_MODEL, "gemini": GEMINI_MODEL, "claude": CLAUDE_MODEL})
+    SCOUT_MAX_SEARCHES_PER_JOB = _int_env("SCOUT_MAX_SEARCHES_PER_JOB", SCOUT_MAX_SEARCHES_PER_JOB)
+    SCOUT_MAX_RESULTS = _int_env("SCOUT_MAX_RESULTS", SCOUT_MAX_RESULTS)
+    old = LLM_PROVIDER
+    LLM_PROVIDER = _valid_provider(os.getenv("LLM_PROVIDER", old), old)
+    if LLM_PROVIDER != old:
+        log.info("main brain changed: %s -> %s", old, LLM_PROVIDER)
+        return True
+    return False

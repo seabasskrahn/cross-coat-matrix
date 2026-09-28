@@ -15,6 +15,8 @@ What it does, every POLL seconds (default 10, env KEEPER_POLL_SECONDS):
      (llm.brain_for). A task that clearly needs outside facts may get ONE read-only Scout web
      search first (matrix/scout.py; capped per job, off without TAVILY_API_KEY), logged as
      `scout search` with the query only.
+  .env is re-read at the start of every sweep, so changing the MAIN BRAIN line (LLM_PROVIDER) or a
+  BRAIN_<AGENT> line takes effect within one poll, no restart (logged as `main brain changed`).
   4. Asks the owner "Approve these drafts?" in `approvals` and stops. It never approves itself.
      When the owner answers yes/no, the first poll after the grace window logs `approval answered`,
      then drafts any remaining tasks (and asks again) or logs `job closed` (a "no" logs `rejected`
@@ -211,6 +213,25 @@ def setup_logging() -> None:
         lg.setLevel(logging.INFO)
 
 
+def log_brains() -> None:
+    log.info("brains: main=%s; %s; scout: %s", config.LLM_PROVIDER,
+             ", ".join(f"{a}={llm.brain_label(a)}" for a in env.roster()),
+             f"on (max {config.SCOUT_MAX_SEARCHES_PER_JOB} searches/job)" if scout.enabled() else "off")
+
+
+def reload_settings() -> bool:
+    """Re-read .env at the start of every sweep, so the MAIN BRAIN line (and BRAIN_<AGENT> lines)
+    take effect on the next sweep with no restart. Never crashes the loop."""
+    try:
+        changed = config.reload_env()
+    except Exception:  # noqa: BLE001 - a bad .env keeps the current settings
+        log.exception("could not re-read .env; keeping the current settings")
+        return False
+    if changed:
+        log_brains()
+    return changed
+
+
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(description="Keeper worker")
     p.add_argument("--once", action="store_true", help="run one sweep and exit")
@@ -224,11 +245,11 @@ def main(argv=None) -> int:
         (LOG_DIR / "keeper_worker.pid").write_text(str(os.getpid()))
     log.info("keeper worker starting (pid %s, every %ss, LLM=%s, max %s LLM calls/sweep, %s tasks/job)",
              os.getpid(), args.interval, config.LLM_PROVIDER, MAX_LLM_CALLS_PER_SWEEP, MAX_TASKS_PER_JOB_RUN)
-    log.info("brains: %s; scout: %s", ", ".join(f"{a}={llm.brain_label(a)}" for a in env.roster()),
-             f"on (max {config.SCOUT_MAX_SEARCHES_PER_JOB} searches/job)" if scout.enabled() else "off")
+    log_brains()
     store = None
     was_off = None
     while True:
+        reload_settings()  # picks up a MAIN BRAIN change in .env within one poll (~10 s)
         try:
             if store is None:
                 store = PgStore(config.CHECKPOINT_DB_URL)

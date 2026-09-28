@@ -26,7 +26,17 @@ Each agent can think with its own AI brain. Out of the box:
 | BEZEL | Gemini (`gemini`, `GEMINI_MODEL`) |
 | Everyone else (SUNDAY and all specialists) | The default brain: `LLM_PROVIDER` in `.env` |
 
-To change one agent, add **one line** to `.env` (then restart the Keeper worker):
+**Main brain switch.** The first setting in `.env` is the main brain:
+```
+# ===== MAIN BRAIN: change to gemini or xai =====
+LLM_PROVIDER=gemini
+```
+It sets the brain for every agent without its own `BRAIN_<AGENT>` line. STEWARD (xai) and BEZEL
+(gemini) are pinned in `matrix/config.py` and don't follow it. The Keeper worker re-reads `.env`
+at the start of every sweep, so a change takes effect within about 10 seconds with no restart. The
+log shows `main brain changed: gemini -> xai`. A typo keeps the previous brain and logs a warning.
+
+To change one agent, add **one line** to `.env` (picked up on the next sweep, too):
 ```
 BRAIN_TAPER=xai
 BRAIN_VECTOR=gemini:gemini-3.1-pro-preview
