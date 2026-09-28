@@ -1,32 +1,55 @@
 # Cross Coat Matrix — Mind Map (end-goal vision)
 
 This is the planning picture of the Matrix, not a description of what is coded today.
-Service keys are shown by their nicknames. Live keys are in `.env` and working;
-planned keys are not assigned yet.
+The Central Core is the skyscraper in the middle of everything. Service keys are shown
+by their nicknames. Live keys are in `.env` and working; planned keys are not assigned yet.
 
 ```mermaid
 flowchart TD
     CEO["SEABASS — CEO<br/>Neo, the One<br/>Final say on everything"]
 
-    CEO --> STW["S.T.E.W.A.R.D.<br/>The Architect<br/>Lives in the core reactor<br/>Brain key: Architect"]
-    CEO --> BZL["B.E.Z.E.L.<br/>Business Execution & Zero-effort Extension Liaison<br/>The Oracle, sits in the office with you<br/>Brain key: Echo"]
+    subgraph CORE["CENTRAL CORE — the skyscraper in the middle of everything"]
+        STW["S.T.E.W.A.R.D.<br/>The Architect<br/>Lives in the core reactor<br/>Brain key: Architect"]
+        BZL["B.E.Z.E.L.<br/>Business Execution & Zero-effort Extension Liaison<br/>The Oracle, sits in the office with you<br/>Brain key: Echo"]
+        UNIT["THE UNIT<br/>You + STEWARD + BEZEL<br/>One voice to the world: Stuart"]
+        SUN["S.U.N.D.A.Y.<br/>Sovereign Unaudited Network for Dispatch & Asset Yield<br/>The Operator, routes every call in and out"]
+        MER["THE MEROVINGIAN<br/>Building manager role<br/>One in charge of each building, with its own rules and people"]
+        LUM["LUMEN — The Trainman<br/>Builds and maintains the Matrix<br/>Option B: no body, the green code itself"]
+        CB["Circuit-breaker supervisors<br/>The Agents, stop runaway loops"]
 
-    STW --> UNIT
-    BZL --> UNIT
-    UNIT["THE UNIT<br/>You + STEWARD + BEZEL<br/>One voice to the world: Stuart"]
+        subgraph KEYS["Service keys"]
+            subgraph LIVE["Live"]
+                K1["Architect<br/>(Grok)"]
+                K2["Echo<br/>(Gemini)"]
+                K3["Vault<br/>(GitHub)"]
+                K4["Scout<br/>(Tavily web search)"]
+                K5["Clerk<br/>(file tool)"]
+            end
+            subgraph PLANNED["Planned, not yet assigned"]
+                P2["Relay<br/>(n8n)"]
+                P3["Keeper<br/>(Postgres)"]
+                P4["Reserve<br/>(Claude)"]
+            end
+        end
 
-    UNIT --> SUN["S.U.N.D.A.Y.<br/>Sovereign Unaudited Network for Dispatch & Asset Yield<br/>The Operator, routes every call in and out"]
+        STW --> UNIT
+        BZL --> UNIT
+        UNIT --> SUN
+        SUN --> MER
+        SUN --> CB
+        STW -.-> LUM
+        LUM -.-> MER
+        K1 -.-> STW
+        K2 -.-> BZL
+    end
 
-    SUN --> MER["THE MEROVINGIAN<br/>Building manager role<br/>One in charge of each building, with its own rules and people"]
-
-    STW -.-> LUM["LUMEN — The Trainman<br/>Builds and maintains the Matrix<br/>Option B: no body, the green code itself"]
-    LUM -.-> MER
+    CEO --> STW
+    CEO --> BZL
 
     MER --> FIELD
     MER --> MONEY
     MER --> QUAL
     MER --> FUTURE
-    SUN --> CB
 
     subgraph FIELD["Field Operations building"]
         TAP["T.A.P.E.R.<br/>Tailgate Agenda & Project Execution Relay<br/>Morpheus, crew captain"]
@@ -53,24 +76,4 @@ flowchart TD
         RES["Deep research"]
         TRN["Training grounds<br/>The Construct / the Dojo"]
     end
-
-    CB["Circuit-breaker supervisors<br/>The Agents, stop runaway loops"]
-
-    subgraph KEYS["Service keys"]
-        subgraph LIVE["Live"]
-            K1["Architect<br/>(Grok)"]
-            K2["Echo<br/>(Gemini)"]
-            K3["Vault<br/>(GitHub)"]
-            K4["Scout<br/>(Tavily web search)"]
-            K5["Clerk<br/>(file tool)"]
-        end
-        subgraph PLANNED["Planned, not yet assigned"]
-            P2["Relay<br/>(n8n)"]
-            P3["Keeper<br/>(Postgres)"]
-            P4["Reserve<br/>(Claude)"]
-        end
-    end
-
-    K1 -.-> STW
-    K2 -.-> BZL
 ```
