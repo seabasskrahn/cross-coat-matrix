@@ -1,7 +1,7 @@
 """Offline demo: run `python demo.py` (add --auto to answer 'yes' automatically)."""
 import sys
 
-from matrix import config, names, runner
+from matrix import config, envelope, names, runner
 from matrix.graph import build_graph
 
 MESSAGES = [
@@ -11,9 +11,9 @@ MESSAGES = [
 
 
 def show(result: dict):
-    for line in result["handoff_log"]:
-        print("   ", names.pretty(line))
-    print("   STATUS:", result["status"])
+    for entry in result.get("step_log", []):
+        print("   ", names.pretty(envelope.describe(entry, config.TIMEZONE)))
+    print("   STATUS:", result["status"], f"(Keeper job {result.get('job_id')})")
     if result.get("reply"):
         print("   REPLY:", names.pretty(result["reply"]))
 

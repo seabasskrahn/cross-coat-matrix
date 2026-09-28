@@ -3,7 +3,7 @@ Set SHOW_ROUTING=1 in .env to also see the behind-the-scenes routing lines.
 Change the assistant's name (and the agents' names) with: python rename_panel.py"""
 import os
 import re
-from matrix import agents, names, runner
+from matrix import agents, config, envelope, names, runner
 from matrix.graph import build_graph
 
 # Internal staff names are hidden from what you see on screen.
@@ -30,8 +30,8 @@ def clean(text: str) -> str:
 def show(result: dict):
     name = assistant()
     if os.getenv("SHOW_ROUTING") == "1":
-        for line in result["handoff_log"]:
-            print("   ", names.pretty(line))
+        for entry in result.get("step_log", []):
+            print("   ", names.pretty(envelope.describe(entry, config.TIMEZONE)))
     if result.get("reply"):
         print(f"\n{name}:", clean(result["reply"]), "\n")
     else:

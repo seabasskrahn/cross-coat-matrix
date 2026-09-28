@@ -50,3 +50,12 @@ OUTWARD_WORDS = {
 }
 # These specialists always write outward when they act (LEDGER writes to QuickBooks).
 ALWAYS_OUTWARD = {"LEDGER": "write_quickbooks"}
+
+# Short role labels for the Keeper job envelope (each task carries agent name + role).
+ROLE_LABELS = {
+    "SUNDAY": "router",
+    "STEWARD": "senior staff", "BEZEL": "senior staff",
+    "TAPER": "field ops", "ARMOR": "truck maintenance", "DEDUCT": "expense tracker",
+    "AUDIT": "receivables", "MARGIN": "pricing", "LEDGER": "bookkeeper",
+    "FINISH": "quality checker", "VECTOR": "takeoff estimator",
+}

@@ -114,9 +114,10 @@ def test_chat_uses_custom_name(monkeypatch, capsys):
     assert "Stuart" not in out
     assert chat.clean("[TAPER mock] done by SUNDAY") == "Jarvis done by Jarvis"
     monkeypatch.setenv("SHOW_ROUTING", "1")
-    chat.show({"handoff_log": ["7:00 AM BEZEL: delegated to TAPER"], "reply": "ok", "status": "done"})
+    chat.show({"step_log": [{"tag": "agent assigned", "at": "2026-09-28T13:00:00Z", "agent": "TAPER",
+                             "role": "field ops", "via": "BEZEL"}], "reply": "ok", "status": "done"})
     out = capsys.readouterr().out
-    assert "delegated to Crew Boss" in out and "Jarvis: ok" in out
+    assert "agent assigned: Crew Boss (field ops)" in out and "Jarvis: ok" in out
 
 
 def test_llm_prompt_uses_custom_name(monkeypatch):
