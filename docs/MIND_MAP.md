@@ -1,104 +1,105 @@
-# Cross Coat Matrix — Mind Map (end-goal vision)
+# Cross Coat Matrix — Structure
 
-This is the planning picture of the Matrix, not a description of what is coded today.
-The Central Core is the skyscraper in the middle of everything. Service keys are shown
-by their nicknames. Live keys are in `.env` and working; planned keys are not assigned yet.
+The town has one centre building, the Central Core. Inside the Core, everything is
+arranged in strict levels from top to bottom. The Communications Tower sits at the top
+level and is the single point that all traffic routes through. Lines run from the Tower
+to every other building in the town.
 
-## 3D layout: the city from above
-
-The Central Core skyscraper stands in the exact centre of the Matrix. Every other
-building stands in a ring around it, at equal distance, so the Core can reach each one
-directly. Going clockwise from the front door: Field Operations, Finance and Revenue
-Defense, Quality and Blueprint, then the planned buildings for Film and Content, Email,
-Marketing and Advertising, Calendar, Deep Research, and the Training Grounds. Planned
-buildings stand in the ring switched off until they are opened.
-
-```mermaid
-mindmap
-  root((CENTRAL CORE skyscraper))
-    Field Operations
-    Finance and Revenue Defense
-    Quality and Blueprint
-    Film and Content - planned
-    Email - planned
-    Marketing and Advertising - planned
-    Calendar - planned
-    Deep Research - planned
-    Training Grounds - planned
-```
-
-## Chain of command: who reports to whom
+Service keys marked "planned" are not assigned yet.
 
 ```mermaid
 flowchart TD
-    CEO["SEABASS — CEO<br/>Neo, the One<br/>Final say on everything"]
-
-    subgraph CORE["CENTRAL CORE — the skyscraper in the middle of everything"]
-        STW["S.T.E.W.A.R.D.<br/>The Architect<br/>Lives in the core reactor<br/>Brain key: Architect"]
-        BZL["B.E.Z.E.L.<br/>Business Execution & Zero-effort Extension Liaison<br/>The Oracle, sits in the office with you<br/>Brain key: Echo"]
-        UNIT["THE UNIT<br/>You + STEWARD + BEZEL<br/>One voice to the world: Stuart"]
-        SUN["S.U.N.D.A.Y.<br/>Sovereign Unaudited Network for Dispatch & Asset Yield<br/>The Operator, routes every call in and out"]
-        MER["THE MEROVINGIAN<br/>Building manager role<br/>One in charge of each building, with its own rules and people"]
-        LUM["LUMEN — The Trainman<br/>Builds and maintains the Matrix<br/>Option B: no body, the green code itself"]
-        CB["Circuit-breaker supervisors<br/>The Agents, stop runaway loops"]
+    subgraph CORE["CENTRAL CORE"]
+        direction TB
+        CT["Communications Tower"]
+        CEO["Seabass — CEO"]
+        STW["STEWARD"]
+        BZL["BEZEL"]
+        UNIT["The Unit"]
+        SUN["SUNDAY"]
+        LUM["LUMEN"]
+        MER["Merovingian — building manager role"]
+        CB["Circuit breakers"]
 
         subgraph KEYS["Service keys"]
-            subgraph LIVE["Live"]
-                K1["Architect<br/>(Grok)"]
-                K2["Echo<br/>(Gemini)"]
-                K3["Vault<br/>(GitHub)"]
-                K4["Scout<br/>(Tavily web search)"]
-                K5["Clerk<br/>(file tool)"]
-            end
-            subgraph PLANNED["Planned, not yet assigned"]
-                P2["Relay<br/>(n8n)"]
-                P3["Keeper<br/>(Postgres)"]
-                P4["Reserve<br/>(Claude)"]
-            end
+            direction LR
+            K1["Architect — live"]
+            K2["Echo — live"]
+            K3["Vault — live"]
+            K4["Scout — live"]
+            K5["Clerk — live"]
+            P1["Relay — planned"]
+            P2["Keeper — planned"]
+            P3["Reserve — planned"]
         end
 
+        CT --> CEO
+        CEO --> STW
+        CEO --> BZL
         STW --> UNIT
         BZL --> UNIT
         UNIT --> SUN
-        SUN --> MER
-        SUN --> CB
-        STW -.-> LUM
-        LUM -.-> MER
-        K1 -.-> STW
-        K2 -.-> BZL
+        SUN --> LUM
+        LUM --> MER
+        MER --> CB
+        CB --> KEYS
     end
 
-    CEO --> STW
-    CEO --> BZL
+    CT --> FIELD
+    CT --> MONEY
+    CT --> QUAL
+    CT --> FILM
+    CT --> MAIL
+    CT --> MKT
+    CT --> CAL
+    CT --> RES
+    CT --> TRN
 
-    MER --> FIELD
-    MER --> MONEY
-    MER --> QUAL
-    MER --> FUTURE
-
-    subgraph FIELD["Field Operations building"]
-        TAP["T.A.P.E.R.<br/>Tailgate Agenda & Project Execution Relay<br/>Morpheus, crew captain"]
-        ARM["A.R.M.O.R.<br/>Advanced Rig & Mobile Operations Relay<br/>Niobe, keeps the Silverado running"]
+    subgraph FIELD["Field Operations"]
+        TAP["TAPER"]
+        ARM["ARMOR"]
     end
 
-    subgraph MONEY["Finance & Revenue Defense building"]
-        MAR["M.A.R.G.I.N.<br/>Market Analysis & Revenue Growth for Incremental Net<br/>Pricing"]
-        AUD["A.U.D.I.T.<br/>Autonomous Undisclosed Dividend & Invoice Tracker<br/>The Sentinels, hunts down what's owed"]
-        DED["D.E.D.U.C.T.<br/>Digital Expense Depreciation & Unclaimed Capital Tracker<br/>Tax write-offs"]
-        LED["L.E.D.G.E.R.<br/>Loss-prevention, Expense Dispatch & General Equity Reconciliation<br/>QuickBooks, always needs your yes"]
+    subgraph MONEY["Finance and Revenue Defense"]
+        MAR["MARGIN"]
+        AUD["AUDIT"]
+        DED["DEDUCT"]
+        LED["LEDGER"]
     end
 
-    subgraph QUAL["Quality & Blueprint building"]
-        FIN["F.I.N.I.S.H.<br/>Final Inspection, Network Intelligence & System Hand-off<br/>Seraph, tests work before it goes out"]
-        VEC["V.E.C.T.O.R.<br/>Value Estimation, Calculation & Takeoff Operational Relay<br/>The Keymaker, exact cuts and counts"]
+    subgraph QUAL["Quality and Blueprint"]
+        FIN["FINISH"]
+        VEC["VECTOR"]
     end
 
-    subgraph FUTURE["Planned buildings (switched off, slots ready)"]
-        FILM["Film / content"]
-        MAIL["Email"]
-        MKT["Marketing & advertising"]
-        CAL["Calendar"]
-        RES["Deep research"]
-        TRN["Training grounds<br/>The Construct / the Dojo"]
-    end
+    FILM["Film and Content — planned"]
+    MAIL["Email — planned"]
+    MKT["Marketing and Advertising — planned"]
+    CAL["Calendar — planned"]
+    RES["Deep Research — planned"]
+    TRN["Training Grounds — planned"]
 ```
+
+## Levels inside the Central Core
+
+1. Communications Tower
+2. Seabass — CEO
+3. STEWARD and BEZEL (equal rank)
+4. The Unit
+5. SUNDAY
+6. LUMEN
+7. Merovingian — building manager role
+8. Circuit breakers
+9. Service keys — Architect, Echo, Vault, Scout, Clerk (live); Relay, Keeper, Reserve (planned)
+
+## Buildings connected to the Communications Tower
+
+- Field Operations — TAPER, ARMOR
+- Finance and Revenue Defense — MARGIN, AUDIT, DEDUCT, LEDGER
+- Quality and Blueprint — FINISH, VECTOR
+- Film and Content — planned
+- Email — planned
+- Marketing and Advertising — planned
+- Calendar — planned
+- Deep Research — planned
+- Training Grounds — planned
