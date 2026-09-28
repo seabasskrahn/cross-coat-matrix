@@ -10,6 +10,8 @@ Kept separate from the web server so it can be tested offline:
                                 that closed the job): an `approval reopened` step + the answer flipped
                                 (fresh answered_at), so the worker acts on the new answer after the grace
 - set_paused(store,...)      -> per-job On/Off: appends a `paused` / `resumed` step
+- brain_panel(info)          -> header: main brain (live from .env), Gemini / xAI switch, each agent's
+                                brain (pins marked), the worker's last reported brains (matrix/brain_switch.py)
 - render_list / render_job / render_error -> the HTML pages
 
 The dashboard only ever changes ONE approval entry in `jobs.approvals` (answer it, or put it back
@@ -443,6 +445,14 @@ STYLE = r"""
   #note.ok { display:block; background:#dcfce7; color:#166534; } #note.err { display:block; background:#fee2e2; color:#991b1b; }
   .problem { background:#fff7ed; border:1px solid #fed7aa; color:#9a3412; border-radius:12px; padding:18px 20px; font-size:15px; }
   .problem h2 { margin:0 0 8px; }
+  .brain { display:flex; flex-direction:column; gap:3px; font-size:13px; color:#e5e7eb; }
+  .brain .row1 { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+  .seg { display:inline-flex; border:1px solid #4b5563; border-radius:8px; overflow:hidden; }
+  .seg button { border:none; border-radius:0; padding:5px 12px; background:#1f2937; color:#e5e7eb; font-size:13px; }
+  .seg button.sel { background:#2563eb; color:#fff; font-weight:600; cursor:default; }
+  .seg button:not(.sel):hover { background:#374151; }
+  .brain .agents, .brain .reported { font-size:11px; color:#9ca3af; max-width:640px; }
+  .brain .pin { color:#fbbf24; }
 """
 
 SCRIPT = r"""
@@ -486,6 +496,16 @@ function changeToNo(job, index) {
 function setWorker(on) {
   post("/api/worker", {on:on}, on ? "Keeper worker switched ON. It picks up jobs again within about 10 seconds."
                                   : "Keeper worker switched OFF. It stays running but won't pick up any job.");
+}
+function setBrain(value, label, current) {
+  if (value === current) return;
+  if (!confirm("Switch the main brain to " + label + "?\n\nEvery agent without its own pin follows it. BEZEL stays on Gemini and STEWARD on xAI (pinned). Only the LLM_PROVIDER line in .env changes (a backup is saved first).")) return;
+  post("/api/brain", {provider:value}, "Switched to " + label + "; the Keeper picks it up within about 10 seconds.");
+}
+function setBezel(value, label, current) {
+  if (value === current) return;
+  if (!confirm("Switch BEZEL's brain to " + label + "?\n\nOnly the BRAIN_BEZEL line in .env changes (added if missing; a backup is saved first). The main brain and STEWARD stay as they are.")) return;
+  post("/api/bezel-brain", {provider:value}, "BEZEL switched to " + label + "; the Keeper picks it up within about 10 seconds.");
 }
 function setPaused(job, paused) {
   post("/api/pause", {job:job, paused:paused}, paused ? "Job paused. The Keeper worker will skip it until you switch it back on."
@@ -538,7 +558,8 @@ def undo_chip(job: dict, now: datetime | None = None) -> str:
     return ""
 
 
-def render_list(jobs: list[dict], now: datetime | None = None, settings: dict | None = None) -> str:
+def render_list(jobs: list[dict], now: datetime | None = None, settings: dict | None = None,
+                brain: dict | None = None) -> str:
     rows = []
     for j in jobs:
         jid = j.get("id")
@@ -560,7 +581,8 @@ def render_list(jobs: list[dict], now: datetime | None = None, settings: dict | 
     tz = local_tz().key
     return page("Keeper dashboard", body,
                 f"Every job Keeper is holding. Click a job to see its drafts and answer approvals. "
-                f"Updates every {REFRESH_SECONDS} seconds. Times are {tz}.", switch=worker_switch(settings))
+                f"Updates every {REFRESH_SECONDS} seconds. Times are {tz}.",
+                switch=worker_switch(settings) + brain_panel(brain))
 
 
 def _render_tasks(job: dict) -> str:
@@ -713,6 +735,48 @@ def worker_switch(settings: dict | None) -> str:
     return toggle(on, "setWorker(this.checked)", "Keeper worker: On" if on else "Keeper worker: Off")
 
 
+def brain_panel(info: dict | None) -> str:
+    """Main brain switch for the header: current brain (live from .env), a Gemini / xAI toggle, each
+    agent's resolved brain (pins marked) and what the worker's log last reported. No secrets."""
+    if info is None:
+        return ""
+    from .brain_switch import CHOICES, LABELS
+    worker = info.get("worker")
+    reported = ""
+    if worker:
+        try:
+            when = datetime.strptime(worker["at"], "%Y-%m-%d %H:%M:%S").strftime("%I:%M %p").lstrip("0")
+        except (KeyError, ValueError):
+            when = "?"
+        reported = (f'<div class="reported">Keeper worker last reported ({esc(when)}): '
+                    f'main brain {esc(LABELS.get(worker.get("main"), worker.get("main") or "?"))}</div>')
+    if info.get("error"):
+        return f'<div class="brain"><div class="row1">Main brain: {esc(info["error"])}</div>{reported}</div>'
+    main = info.get("main") or ""
+
+    def seg(fn, current, labels):
+        return '<span class="seg">' + "".join(
+            f'<button class="{"sel" if current == v else ""}" '
+            f'onclick="{fn}(\'{v}\', \'{esc(label)}\', \'{esc(current)}\')">{esc(label)}</button>'
+            for v, label in labels.items()) + "</span>"
+    buttons = seg("setBrain", main, CHOICES)
+    bezel = info.get("bezel") or ""
+    bezel_names = {"xai": "Grok", "gemini": "Gemini"}
+    source = " (config pin; no BRAIN_BEZEL line in .env)" if info.get("bezel_source") == "config pin" else ""
+    bezel_row = ""
+    if "bezel" in info:
+        bezel_row = (f'<div class="row1">BEZEL&#39;s brain: <b>{esc(bezel_names.get(bezel, bezel or "not set"))}</b>'
+                     f'{seg("setBezel", bezel, bezel_names)}<span class="small">{esc(source)}</span></div>')
+    agents = " &middot; ".join(
+        f'{esc(a["agent"])} {esc(a["brain"])}'
+        + (' <span class="pin">(pinned)</span>' if a.get("pinned") else "")
+        + (f' ({esc(a["note"])})' if a.get("note") else "")
+        for a in info.get("agents") or [])
+    return (f'<div class="brain"><div class="row1">Main brain: <b>{esc(LABELS.get(main, main or "not set"))}</b>'
+            f'{buttons}</div>{bezel_row}'
+            f'<div class="agents">{agents}</div>{reported}</div>')
+
+
 def worker_banner(settings: dict | None) -> str:
     if settings is None or settings.get("worker_on"):
         return ""
@@ -720,7 +784,8 @@ def worker_banner(settings: dict | None) -> str:
     return f'<div class="off-banner">Keeper worker is OFF. {esc(why)}</div>'
 
 
-def render_job(job: dict, now: datetime | None = None, settings: dict | None = None) -> str:
+def render_job(job: dict, now: datetime | None = None, settings: dict | None = None,
+               brain: dict | None = None) -> str:
     status = job_status(job)
     agents = ", ".join(agent_label(a) for a in env.as_list(job.get("agents"))) or "none yet"
     reopen = ""
@@ -753,7 +818,7 @@ def render_job(job: dict, now: datetime | None = None, settings: dict | None = N
         f"<h2>Drafts</h2>{_render_drafts(job, now)}"
         f"<h2>Step log</h2>{_render_timeline(job, now)}")
     return page(f"Job #{job.get('id')}", worker_banner(settings) + body, short(job.get("message"), 140), back=True,
-                switch=worker_switch(settings))
+                switch=worker_switch(settings) + brain_panel(brain))
 
 
 def render_error(title: str, detail: str) -> str:

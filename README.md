@@ -142,6 +142,13 @@ then. After that, a job your Reject closed shows **Change to Yes** and **Reopen*
 and a job you approved shows **Change to No**. That only records the change and marks the job
 rejected. Drafts already made stay as they are, and nothing was ever sent.
 
+**Brain switches.** Next to the On/Off switch, the header shows the main brain (read live from
+`.env`) with a **Gemini / xAI (Grok)** toggle, and **BEZEL's brain: Grok / Gemini**. Each asks you
+to confirm, backs up `.env` to `logs\.env.bak-<time>`, then changes only its own line
+(`LLM_PROVIDER=` or `BRAIN_BEZEL=`; the BEZEL line is added if it's missing). The Keeper picks it
+up within about 10 seconds, no restart. Small text lists each agent's brain (pins marked) and what
+the worker's log last reported. No keys are ever shown.
+
 **On/Off switches.** The switch at the top turns the Keeper worker On or Off. When it's Off, the
 worker keeps running but picks up nothing (saved in `logs\keeper_settings.json`). Each open job
 also has its own switch: a paused job is skipped until you switch it back on, and you can still

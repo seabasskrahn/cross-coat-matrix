@@ -219,11 +219,18 @@ def log_brains() -> None:
              f"on (max {config.SCOUT_MAX_SEARCHES_PER_JOB} searches/job)" if scout.enabled() else "off")
 
 
+def brain_snapshot() -> dict:
+    return {a: llm.brain_label(a) for a in env.roster()}
+
+
 def reload_settings() -> bool:
-    """Re-read .env at the start of every sweep, so the MAIN BRAIN line (and BRAIN_<AGENT> lines)
-    take effect on the next sweep with no restart. Never crashes the loop."""
+    """Re-read .env at the start of every sweep (python-dotenv, override=True), so the MAIN BRAIN
+    line and BRAIN_<AGENT> lines take effect on the next sweep with no restart. Logs a `brains:` line
+    whenever ANY agent's resolved brain changes. Never crashes the loop. Returns True on a change."""
     try:
-        changed = config.reload_env()
+        before = brain_snapshot()
+        main_changed = config.reload_env()
+        changed = main_changed or brain_snapshot() != before
     except Exception:  # noqa: BLE001 - a bad .env keeps the current settings
         log.exception("could not re-read .env; keeping the current settings")
         return False

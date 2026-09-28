@@ -11,6 +11,10 @@ pending (plus an `approval reopened` step) when you click Undo (within the grace
 worker acts) or Reopen (on a job your Reject closed). Change to Yes (after a Reject) logs
 `approval reopened` and sets the answer to yes with a fresh answered_at; Change to No (after an
 Approve, e.g. on a job that closed) does the same with no, and the worker then marks it rejected.
+Main brain: the header shows the main brain (read live from .env), a Gemini / xAI (Grok) switch that
+rewrites ONLY the LLM_PROVIDER= line (backup in logs/, atomic replace; the worker picks it up within
+about 10 seconds), a BEZEL Grok / Gemini switch that rewrites ONLY the BRAIN_BEZEL= line (added if missing),
+each agent's brain (BEZEL and STEWARD pinned) and the worker's last `brains:` log line.
 Switches: the header has the global Keeper worker On/Off switch (logs/keeper_settings.json; Off =
 the worker stays alive but claims nothing) and each open job has its own On/Paused switch
 (`paused` / `resumed` step_log entries; the worker skips paused jobs). The Keeper worker waits out the grace window
@@ -25,7 +29,7 @@ import threading
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from matrix import config
+from matrix import brain_switch, config
 from matrix import keeper_dashboard as kd
 from matrix import keeper_settings
 
@@ -121,7 +125,8 @@ class Handler(BaseHTTPRequestHandler):
         m = re.fullmatch(r"/(api/)?job/(\d{1,12})", path)
         try:
             if path in ("/", "/index.html"):
-                return self._html(200, kd.render_list(self.backend.run(kd.list_jobs), settings=keeper_settings.load()))
+                return self._html(200, kd.render_list(self.backend.run(kd.list_jobs), settings=keeper_settings.load(),
+                                                     brain=brain_switch.panel_info()))
             if path == "/api/jobs":
                 jobs = self.backend.run(kd.list_jobs)
                 return self._json(200, {"summary": kd.summary(jobs), "settings": keeper_settings.load(),
@@ -132,7 +137,8 @@ class Handler(BaseHTTPRequestHandler):
                     return self._json(404, {"error": "Not found"}) if job is None else \
                         self._json(200, {**job, "status": kd.job_status(job)})
                 return self._html(404, kd.render_not_found(m.group(2))) if job is None else \
-                    self._html(200, kd.render_job(job, settings=keeper_settings.load()))
+                    self._html(200, kd.render_job(job, settings=keeper_settings.load(),
+                                                 brain=brain_switch.panel_info()))
         except NoDatabase as err:
             if path.startswith("/api/"):
                 return self._json(503, {"error": str(err)})
@@ -150,13 +156,19 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(415, {"error": "Send JSON"})
         path = self.path.split("?", 1)[0]
         if path not in ("/api/answer", "/api/undo", "/api/reopen", "/api/change-to-yes", "/api/change-to-no",
-                        "/api/pause", "/api/worker"):
+                        "/api/pause", "/api/worker", "/api/brain", "/api/bezel-brain"):
             return self._json(404, {"error": "Not found"})
         length = int(self.headers.get("Content-Length") or 0)
         if length > MAX_BODY:
             return self._json(413, {"error": "Too big"})
         try:
             data = json.loads((self.rfile.read(length) if length else b"{}").decode("utf-8"))
+            if path == "/api/brain":  # rewrites ONLY the LLM_PROVIDER= line in .env (gemini or xai)
+                result = brain_switch.set_main_brain(data.get("provider"))
+                return self._json(200, {"ok": True, "main": result["now"], "previous": result["previous"]})
+            if path == "/api/bezel-brain":  # rewrites ONLY the BRAIN_BEZEL= line (added if missing)
+                result = brain_switch.set_bezel_brain(data.get("provider"))
+                return self._json(200, {"ok": True, "bezel": result["now"], "previous": result["previous"]})
             if path == "/api/worker":
                 if not isinstance(data.get("on"), bool):
                     raise ValueError
@@ -173,7 +185,7 @@ class Handler(BaseHTTPRequestHandler):
             if not is_int(job_id) or not (is_int(index) or (index is None and optional)):
                 raise ValueError
             action, text = str(data.get("action", "")), str(data.get("text", "") or "")
-        except kd.AnswerError as err:  # (a ValueError, so it must come first)
+        except (kd.AnswerError, brain_switch.BrainSwitchError) as err:  # (ValueErrors, so they must come first)
             return self._json(err.code, {"error": str(err)})
         except NoDatabase as err:
             return self._json(503, {"error": str(err)})

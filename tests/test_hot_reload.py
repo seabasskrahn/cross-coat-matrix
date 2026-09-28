@@ -122,3 +122,16 @@ def test_env_example_has_the_main_brain_switch_first():
     assert lines[0] == HEADER.strip()
     first_setting = next(ln for ln in lines if not ln.startswith("#"))
     assert first_setting.startswith("LLM_PROVIDER=")
+
+
+def test_worker_logs_brains_when_only_an_agent_brain_changes(envfile, caplog):
+    envfile("xai")
+    config.reload_env()
+    envfile("xai", "BRAIN_BEZEL=xai\n")
+    with caplog.at_level(logging.INFO, logger="keeper_worker"):
+        assert kw.reload_settings() is True                  # main brain unchanged, BEZEL changed
+    assert "BEZEL=xai:grok-test" in caplog.text and llm.brain_for("BEZEL") == ("xai", "grok-test")
+    caplog.clear()
+    with caplog.at_level(logging.INFO, logger="keeper_worker"):
+        assert kw.reload_settings() is False                 # nothing changed: no new line
+    assert "brains:" not in caplog.text
