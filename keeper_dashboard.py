@@ -19,6 +19,9 @@ Switches: the header has the global Keeper worker On/Off switch (logs/keeper_set
 the worker stays alive but claims nothing) and each open job has its own On/Paused switch
 (`paused` / `resumed` step_log entries; the worker skips paused jobs). The Keeper worker waits out the grace window
 (KEEPER_ANSWER_GRACE_SECONDS, default 30), then logs `approval answered` and closes or continues.
+Self-build loop: a separate "Self-build loop: ON/OFF" header toggle (POST /api/self-build) and an
+"Always-running tasks" card whose "Shut down task" button (POST /api/shutdown-task) sets self_build_on
+false in the same settings file. Neither ever answers, closes or rejects a job or approval.
 GET /api/jobs and /api/job/<id> return JSON (for later tools).
 """
 import argparse
@@ -156,7 +159,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(415, {"error": "Send JSON"})
         path = self.path.split("?", 1)[0]
         if path not in ("/api/answer", "/api/undo", "/api/reopen", "/api/change-to-yes", "/api/change-to-no",
-                        "/api/pause", "/api/worker", "/api/brain", "/api/bezel-brain"):
+                        "/api/pause", "/api/worker", "/api/brain", "/api/bezel-brain",
+                        "/api/self-build", "/api/shutdown-task"):
             return self._json(404, {"error": "Not found"})
         length = int(self.headers.get("Content-Length") or 0)
         if length > MAX_BODY:
@@ -173,6 +177,14 @@ class Handler(BaseHTTPRequestHandler):
                 if not isinstance(data.get("on"), bool):
                     raise ValueError
                 return self._json(200, {"ok": True, "settings": keeper_settings.set_worker_on(data["on"])})
+            if path == "/api/self-build":  # settings file only; never touches a job or approval
+                if not isinstance(data.get("on"), bool):
+                    raise ValueError
+                return self._json(200, {"ok": True, "settings": keeper_settings.set_self_build_on(data["on"])})
+            if path == "/api/shutdown-task":  # stop an always-running task; not a rejection
+                if data.get("task") != kd.SELF_BUILD_TASK:
+                    return self._json(404, {"error": "No such always-running task."})
+                return self._json(200, {"ok": True, "settings": keeper_settings.shut_down_self_build()})
             job_id = data["job"]
             if path == "/api/pause":
                 if not isinstance(data.get("paused"), bool) or not isinstance(job_id, int) or isinstance(job_id, bool):

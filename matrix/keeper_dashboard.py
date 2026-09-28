@@ -10,6 +10,9 @@ Kept separate from the web server so it can be tested offline:
                                 that closed the job): an `approval reopened` step + the answer flipped
                                 (fresh answered_at), so the worker acts on the new answer after the grace
 - set_paused(store,...)      -> per-job On/Off: appends a `paused` / `resumed` step
+- self_build_switch / render_persistent_tasks -> the separate "Self-build loop: ON/OFF" header toggle
+                                and the "Always-running tasks" card ("Shut down task" instead of
+                                Change to No). They only rewrite logs/keeper_settings.json, never a job.
 - brain_panel(info)          -> header: main brain (live from .env), Gemini / xAI switch, each agent's
                                 brain (pins marked), the worker's last reported brains (matrix/brain_switch.py)
 - render_list / render_job / render_error -> the HTML pages
@@ -431,6 +434,8 @@ STYLE = r"""
   .later { color:var(--muted); font-size:13px; align-self:center; }
   .toyes { background:#16a34a; color:#fff; } .toyes:hover { background:#15803d; }
   .tono { background:#fff; color:#b91c1c; border-color:#fecaca; } .tono:hover { background:#fef2f2; }
+  .shutdown { background:#fff; color:#9a3412; border-color:#fdba74; } .shutdown:hover { background:#fff7ed; }
+  .startup { background:#16a34a; color:#fff; } .startup:hover { background:#15803d; }
   .switch { display:inline-flex; align-items:center; gap:8px; cursor:pointer; user-select:none; font-size:14px; }
   .switch input { display:none; }
   .switch .knob { width:42px; height:24px; border-radius:99px; background:#9ca3af; position:relative; transition:.15s; }
@@ -496,6 +501,15 @@ function changeToNo(job, index) {
 function setWorker(on) {
   post("/api/worker", {on:on}, on ? "Keeper worker switched ON. It picks up jobs again within about 10 seconds."
                                   : "Keeper worker switched OFF. It stays running but won't pick up any job.");
+}
+function setSelfBuild(on) {
+  if (!on && !confirm("Switch the self-build loop OFF?\n\nIt stops at its next round. No job or approval changes.")) { location.reload(); return; }
+  post("/api/self-build", {on:on}, on ? "Self-build loop switched ON. It carries on at its next round."
+                                      : "Self-build loop switched OFF. It stops at its next round. No approval was changed.");
+}
+function shutDownTask(task) {
+  if (!confirm("Shut down this always-running task?\n\nIt stops at its next round. This is not a rejection: no job or approval changes, and you can switch it back on any time.")) return;
+  post("/api/shutdown-task", {task:task}, "Task shut down. It stops at its next round. No approval was changed.");
 }
 function setBrain(value, label, current) {
   if (value === current) return;
@@ -574,7 +588,7 @@ def render_list(jobs: list[dict], now: datetime | None = None, settings: dict | 
             f'<td style="white-space:nowrap">{esc(fmt_time(j.get("created_at"), now))}</td></tr>')
     table = ("".join(rows) if rows else
              '<tr><td colspan="6" class="muted" style="padding:18px">No jobs yet.</td></tr>')
-    body = (worker_banner(settings) + render_summary(summary(jobs)) +
+    body = (worker_banner(settings) + render_summary(summary(jobs)) + render_persistent_tasks(settings, now) +
             '<h2>Jobs</h2><div class="card"><table><thead><tr><th style="width:60px">Job</th><th>Message</th>'
             '<th style="width:130px">Status</th><th style="width:60px">Tasks</th><th>Agents</th>'
             f'<th style="width:160px">Created</th></tr></thead><tbody>{table}</tbody></table></div>')
@@ -582,7 +596,7 @@ def render_list(jobs: list[dict], now: datetime | None = None, settings: dict | 
     return page("Keeper dashboard", body,
                 f"Every job Keeper is holding. Click a job to see its drafts and answer approvals. "
                 f"Updates every {REFRESH_SECONDS} seconds. Times are {tz}.",
-                switch=worker_switch(settings) + brain_panel(brain))
+                switch=worker_switch(settings) + self_build_switch(settings) + brain_panel(brain))
 
 
 def _render_tasks(job: dict) -> str:
@@ -735,6 +749,48 @@ def worker_switch(settings: dict | None) -> str:
     return toggle(on, "setWorker(this.checked)", "Keeper worker: On" if on else "Keeper worker: Off")
 
 
+SELF_BUILD_TASK = "self-build"
+PERSISTENT_TASKS = {SELF_BUILD_TASK: "Self-build loop"}  # always-running tasks shown in their own card
+
+
+def self_build_switch(settings: dict | None) -> str:
+    """The separate 'Self-build loop: ON/OFF' toggle, next to the worker switch ('' when settings aren't known)."""
+    if settings is None:
+        return ""
+    from .keeper_settings import self_build_state
+    on = self_build_state(settings)
+    return toggle(on, "setSelfBuild(this.checked)", "Self-build loop: ON" if on else "Self-build loop: OFF")
+
+
+def render_persistent_tasks(settings: dict | None, now: datetime | None = None) -> str:
+    """'Always-running tasks' card. An approved (running) persistent task shows 'Shut down task' where a
+    one-off approval would show 'Change to No'; shutting down is not a rejection and touches no job."""
+    if settings is None:
+        return ""
+    from .keeper_settings import VIA_SHUTDOWN, self_build_state
+    on = self_build_state(settings)
+    when = fmt_time(settings.get("self_build_changed_at"), now)
+    who = settings.get("self_build_changed_by")
+    how = "shut down" if settings.get("self_build_via") == VIA_SHUTDOWN else "switched " + ("on" if on else "off")
+    last = (f"{esc(how)} {esc(when)}{' by ' + esc(who) if who else ''}" if when or who
+            else '<span class="muted">never changed (on by default)</span>')
+    if settings.get("problem"):
+        last = esc(settings["problem"])
+    if on:
+        state = '<span class="badge yes">approved</span> <span class="badge working">Running</span>'
+        control = (f'<button class="shutdown" onclick="shutDownTask(\'{SELF_BUILD_TASK}\')">Shut down task</button>'
+                   '<span class="later">stops it at its next round; not a rejection</span>')
+    else:
+        state = '<span class="badge yes">approved</span> <span class="badge paused">Shut down</span>'
+        control = ('<button class="startup" onclick="setSelfBuild(true)">Switch back on</button>'
+                   '<span class="later">approvals are unaffected</span>')
+    return ('<h2>Always-running tasks</h2><div class="card"><table><thead><tr><th>Task</th>'
+            '<th style="width:200px">Status</th><th>Last change</th><th style="width:380px">Control</th></tr></thead>'
+            f'<tbody><tr class="persistent" data-task="{SELF_BUILD_TASK}"><td><b>{esc(PERSISTENT_TASKS[SELF_BUILD_TASK])}</b> '
+            f'<span class="chip">always running</span></td><td>{state}</td><td class="small">{last}</td>'
+            f'<td><div class="actions" style="margin-top:0">{control}</div></td></tr></tbody></table></div>')
+
+
 def brain_panel(info: dict | None) -> str:
     """Main brain switch for the header: current brain (live from .env), a Gemini / xAI toggle, each
     agent's resolved brain (pins marked) and what the worker's log last reported. No secrets."""
@@ -818,7 +874,7 @@ def render_job(job: dict, now: datetime | None = None, settings: dict | None = N
         f"<h2>Drafts</h2>{_render_drafts(job, now)}"
         f"<h2>Step log</h2>{_render_timeline(job, now)}")
     return page(f"Job #{job.get('id')}", worker_banner(settings) + body, short(job.get("message"), 140), back=True,
-                switch=worker_switch(settings) + brain_panel(brain))
+                switch=worker_switch(settings) + self_build_switch(settings) + brain_panel(brain))
 
 
 def render_error(title: str, detail: str) -> str:
