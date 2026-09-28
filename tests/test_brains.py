@@ -125,3 +125,5 @@ def test_every_agent_in_names_file_is_in_the_roster():
     data = json.loads((Path(__file__).resolve().parent.parent / "matrix_names.json").read_text(encoding="utf-8"))
     listed = {a["id"] for a in data["agents"] if a.get("kind") in ("senior", "specialist")}
     assert listed <= set(agents.SENIOR_STAFF) | set(agents.SPECIALISTS)
+    undecided = {a["id"] for a in data["agents"] if a.get("kind") == "undecided"}
+    assert undecided == set(agents.ROSTER_ONLY)

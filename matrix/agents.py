@@ -51,6 +51,26 @@ OUTWARD_WORDS = {
 # These specialists always write outward when they act (LEDGER writes to QuickBooks).
 ALWAYS_OUTWARD = {"LEDGER": "write_quickbooks"}
 
+# Roster-only agents: on the team list (names file, dashboard, brains) but NO work is routed to them
+# automatically. They are deliberately NOT in SENIOR_STAFF, DELEGATES or SPECIALISTS, so SUNDAY, the
+# senior staff and the splitter never pick them, and they are not in ALWAYS_OUTWARD. They use the
+# default brain (no pin in config.AGENT_BRAINS). A job can still name one by hand.
+# name -> (role text, reports to)
+ROSTER_ONLY = {
+    "LUMEN": ("Role undecided (Seabass is still choosing)", "STEWARD"),
+}
+
+# Powerful permissions (anything beyond drafting). Nobody holds these today and roster-only agents
+# never do. The owner switches one on by hand, later, with his yes.
+POWERFUL_PERMISSIONS = ("write_code", "send_email", "send_message", "write_quickbooks", "payment", "delete")
+PERMISSIONS: dict[str, tuple[str, ...]] = {name: () for name in ROSTER_ONLY}
+
+
+def permissions(name: str) -> tuple[str, ...]:
+    """Extra permissions an agent holds (empty = draft only)."""
+    return PERMISSIONS.get(name, ())
+
+
 # Short role labels for the Keeper job envelope (each task carries agent name + role).
 ROLE_LABELS = {
     "SUNDAY": "router",
@@ -58,4 +78,5 @@ ROLE_LABELS = {
     "TAPER": "field ops", "ARMOR": "truck maintenance", "DEDUCT": "expense tracker",
     "AUDIT": "receivables", "MARGIN": "pricing", "LEDGER": "bookkeeper",
     "FINISH": "quality checker", "VECTOR": "takeoff estimator",
+    "LUMEN": "role undecided",
 }

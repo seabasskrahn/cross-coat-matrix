@@ -47,14 +47,16 @@ def test_defaults_cover_every_agent_and_service():
         assert services[sid] == "off"
     for sid in ("TELEGRAM", "GOOGLE", "QUICKBOOKS"):
         assert services[sid] == "planned"
-    assert "LUMEN" not in ids
+    lumen = [e for e in data["agents"] if e["id"] == "LUMEN"][0]
+    assert lumen["kind"] == "undecided" and lumen["reports_to"] == "STEWARD"
+    assert lumen["description"].startswith("Role undecided")
 
 
 def test_defaults_are_the_locked_baseline():
     data = names.defaults()
     assert [(e["id"], e["display"]) for e in data["agents"]] == [("ASSISTANT", "Stuart")] + [
         (n, n) for n in ["SUNDAY", "STEWARD", "BEZEL", "MARGIN", "VECTOR", "FINISH",
-                         "TAPER", "ARMOR", "DEDUCT", "AUDIT", "LEDGER"]]
+                         "TAPER", "ARMOR", "DEDUCT", "AUDIT", "LEDGER", "LUMEN"]]
     assert [e["display"] for e in data["services"]][:8] == [
         "Grok", "Gemini", "Claude", "GitHub", "Tavily", "File tool", "n8n", "Postgres"]
 

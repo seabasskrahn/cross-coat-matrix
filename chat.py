@@ -16,7 +16,7 @@ def assistant() -> str:
 
 
 def _pattern() -> re.Pattern:
-    internal = sorted(set(agents.SENIOR_STAFF) | set(agents.SPECIALISTS) | _INTERNAL_EXTRA, key=len, reverse=True)
+    internal = sorted(set(agents.SENIOR_STAFF) | set(agents.SPECIALISTS) | set(agents.ROSTER_ONLY) | _INTERNAL_EXTRA, key=len, reverse=True)
     return re.compile(r"\[?\b(" + "|".join(map(re.escape, internal)) + r")\b( mock)?\]?")
 
 

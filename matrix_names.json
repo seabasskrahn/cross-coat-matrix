@@ -108,6 +108,15 @@
       "description": "bookkeeping and QuickBooks Online sync",
       "color": "#8B5CF6",
       "icon": "📒"
+    },
+    {
+      "id": "LUMEN",
+      "kind": "undecided",
+      "reports_to": "STEWARD",
+      "display": "LUMEN",
+      "description": "Role undecided (Seabass is still choosing)",
+      "color": "#16A34A",
+      "icon": "💡"
     }
   ],
   "services": [

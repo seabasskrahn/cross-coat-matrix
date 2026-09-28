@@ -330,6 +330,7 @@ def roster() -> dict[str, str]:
     known = {names.ROUTER_ID: "router: sends each message to the right senior staff"}
     known.update({n: names._SENIOR_ROLES.get(n, "senior staff") for n in agents.SENIOR_STAFF})
     known.update({n: job for n, (job, _kw) in agents.SPECIALISTS.items()})
+    known.update({n: role for n, (role, _boss) in agents.ROSTER_ONLY.items()})  # never routed automatically
     return known
 
 

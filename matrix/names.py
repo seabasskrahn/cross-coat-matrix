@@ -30,7 +30,7 @@ _LOOK = {
     "STEWARD": ("#0EA5E9", "🧠"), "BEZEL": ("#F97316", "⚙️"),
     "MARGIN": ("#22C55E", "💲"), "VECTOR": ("#6366F1", "📐"), "FINISH": ("#14B8A6", "✅"),
     "TAPER": ("#EAB308", "🦺"), "ARMOR": ("#64748B", "🛻"), "DEDUCT": ("#EF4444", "🧾"),
-    "AUDIT": ("#10B981", "💵"), "LEDGER": ("#8B5CF6", "📒"),
+    "AUDIT": ("#10B981", "💵"), "LEDGER": ("#8B5CF6", "📒"), "LUMEN": ("#16A34A", "💡"),
 }
 _PALETTE = ["#F43F5E", "#06B6D4", "#84CC16", "#D946EF", "#F59E0B", "#3B82F6", "#EC4899", "#0D9488"]
 _SENIOR_ROLES = {
@@ -79,6 +79,9 @@ def _agent_rows() -> list[tuple[str, str, str | None, str]]:
     order = [s for s in boss if s in agents.SPECIALISTS] + [s for s in agents.SPECIALISTS if s not in boss]
     for spec in order:
         rows.append((spec, "specialist", boss.get(spec), agents.SPECIALISTS[spec][0]))
+    # Roster-only agents (e.g. LUMEN): listed, but never routed work automatically.
+    for aid, (role, reports_to) in agents.ROSTER_ONLY.items():
+        rows.append((aid, "undecided", reports_to, role))
     return rows
 
 

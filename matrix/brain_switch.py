@@ -145,7 +145,7 @@ def _provider(setting: str) -> tuple[str, str]:
 def resolved(values: dict) -> list[dict]:
     """Each agent's brain as the worker will resolve it from these .env values (same rules as
     llm.brain_for): [{"agent", "brain", "pinned", "note"}]. Keys are only checked for presence."""
-    from . import envelope as env
+    from . import agents, envelope as env
     main = _provider(values.get("LLM_PROVIDER", "mock"))[0]
     models = {"xai": values.get("XAI_MODEL") or "grok-4.6", "gemini": values.get("GEMINI_MODEL") or "gemini-2.5-flash",
               "claude": values.get("CLAUDE_MODEL") or "claude-sonnet-4-5"}
@@ -166,6 +166,8 @@ def resolved(values: dict) -> list[dict]:
                 note = f"no {p} key, using main"
             else:
                 note = f"unknown '{p}', using main"
+        if not note and agent in agents.ROSTER_ONLY:
+            note = "role undecided"
         out.append({"agent": agent, "brain": brain, "pinned": pinned, "note": note})
     return out
 
