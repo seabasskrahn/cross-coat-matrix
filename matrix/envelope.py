@@ -46,6 +46,7 @@ BREAKER = "circuit breaker"
 REJECTED = "rejected"
 APPROVAL_REOPENED = "approval reopened"   # undo / reopen / change of an answered approval
 PAUSED, RESUMED = "paused", "resumed"      # per-job On/Off switch (dashboard); the worker skips paused jobs
+SCOUT_SEARCH = "scout search"              # a read-only web search ran for a task (query only, never a key)
 HALT_TAGS = (CYCLE, BREAKER)  # plus anything starting with "error"
 
 # ---------- approval thread vocabulary ----------
@@ -353,7 +354,7 @@ def brain(name: str, role: str, text: str, mock: str | None = None) -> str:
     who = f"{name} ({known[name]}; role on this job: {role})" if name in known else f"{name}, the team's {role}"
     if mock is None:
         mock = f"[{name} mock] Draft ({role}): {text.splitlines()[-1] if text else ''}"
-    return llm.write(who, text, mock)
+    return llm.write(who, text, mock, agent=name)  # each agent drafts with its own brain (llm.brain_for)
 
 
 def batch_prompt(message: str, batch: list[dict], total_tasks: int, extra: str = "") -> str:
@@ -392,7 +393,7 @@ def describe(e: dict, tz: str = "America/Edmonton") -> str:
         bits.append(f"{e['agent']} ({e['role']})" if e.get("role") else str(e["agent"]))
     if e.get("task") is not None:
         bits.append(f"task {e['task']}")
-    for key in ("to", "status", "by", "kind", "detail", "source"):
+    for key in ("to", "status", "by", "kind", "detail", "source", "query"):
         if e.get(key) not in (None, ""):
-            bits.append(f"{key} {e[key]}" if key in ("to", "status", "by", "source") else str(e[key]))
+            bits.append(f"{key} {e[key]}" if key in ("to", "status", "by", "source", "query") else str(e[key]))
     return f"{when} {e.get('tag', '')}" + (": " + ", ".join(bits) if bits else "")

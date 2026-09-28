@@ -120,7 +120,7 @@ def test_roster_agent_not_tagged():
 def test_default_brain_prompt_for_unknown_agent(monkeypatch):
     from matrix import llm
     seen = {}
-    monkeypatch.setattr(llm, "write", lambda who, text, mock: seen.setdefault("who", who) and "ok")
+    monkeypatch.setattr(llm, "write", lambda who, text, mock, **kw: seen.setdefault("who", who) and "ok")
     kw.default_brain("Merovingian", "reviewer", "Check it")
     assert seen["who"] == "Merovingian, the team's reviewer"
 

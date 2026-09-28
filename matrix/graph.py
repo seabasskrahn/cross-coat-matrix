@@ -9,7 +9,7 @@ from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import interrupt
 
-from . import config, envelope as env, splitter
+from . import config, envelope as env, scout, splitter
 from .agents import ALWAYS_OUTWARD, DELEGATES, OUTWARD_WORDS, SENIOR_STAFF, SPECIALISTS
 from .keeper_store import get_store
 from .state import MatrixState
@@ -43,7 +43,7 @@ def sunday(state: MatrixState) -> dict:
     entries.append(step(state, env.TASK_CREATED, count=len(tasks), tasks=[t["num"] for t in tasks]))
     senior = llm.classify(state["message"], SENIOR_STAFF, "BEZEL",
                           "You are SUNDAY, the router. STEWARD = strategy/pricing/quality/takeoffs. "
-                          "BEZEL = day-to-day operations, crew, truck, money admin.")
+                          "BEZEL = day-to-day operations, crew, truck, money admin.", agent="SUNDAY")
     entries.append(step(state, env.ROUTED, agent="SUNDAY", to=senior, source=state.get("source", "unknown")))
     return {"tasks": tasks, "senior": senior, "step_log": entries}
 
@@ -58,7 +58,7 @@ def make_senior(name: str):
         table = {s: SPECIALISTS[s][1] for s in DELEGATES[name]}
         spec = llm.classify(state["message"], table, DELEGATES[name][0],
                             f"You are {name}, senior staff. Pick the best specialist: "
-                            + "; ".join(f"{s} = {SPECIALISTS[s][0]}" for s in DELEGATES[name]))
+                            + "; ".join(f"{s} = {SPECIALISTS[s][0]}" for s in DELEGATES[name]), agent=name)
         who = {"name": spec, "role": env.role_label(spec)}
         # The splitter already named a specialist on each task of a multi-task message; the rest
         # (a single-task message) go to the specialist this senior picked, as before.
@@ -117,12 +117,22 @@ def make_specialist(name: str):
     def node(state: MatrixState) -> dict:
         tasks = state.get("tasks") or env.make_tasks([state["message"]])
         drafts, entries = [], []
+        log_so_far = list(state.get("step_log") or [])
         for agent, role, batch in batches(tasks, state.get("agents")):  # drafts only, nothing is sent
             nums = [t["num"] for t in batch]
             mock = f"[{agent} mock] Handled task {', '.join(map(str, nums))}: " + " | ".join(
                 t.get("title", "") for t in batch)
-            output = env.brain(agent, role, env.batch_prompt(state["message"], batch, len(tasks)), mock)
+            # Scout: optional read-only web search when the task clearly needs outside facts (capped).
+            topic = " ".join(t.get("title", "") for t in batch) or state["message"]
+            found = scout.research(topic, nums, log_so_far + entries)
+            web = ""
+            if found is not None:
+                web = found["extra"]
+                entries.append(step(state, env.SCOUT_SEARCH, **scout.step_fields(found, nums, agent)))
+            output = env.brain(agent, role, env.batch_prompt(state["message"], batch, len(tasks), web), mock)
             extra = {"covers": nums} if len(nums) > 1 else {}
+            if found is not None:
+                extra["scout"] = {"query": found["query"]}
             drafts.append(_save_append(state, "drafts", env.draft(nums[0], agent, role, output, **extra)))
             entries.append(step(state, env.DRAFT_SAVED, task=nums[0], agent=agent, role=role, **extra))
         kind = detect_outward(name, state["message"], tasks)

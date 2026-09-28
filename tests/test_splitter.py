@@ -84,7 +84,7 @@ def test_batches_one_call_per_agent_respecting_dependencies():
 def test_batched_draft_records_covered_tasks(monkeypatch):
     calls = []
     real = llm.write
-    monkeypatch.setattr(llm, "write", lambda role, text, mock: calls.append(text) or real(role, text, mock))
+    monkeypatch.setattr(llm, "write", lambda role, text, mock, **kw: calls.append(text) or real(role, text, mock, **kw))
     state = {"message": "m", "agents": [],
              "tasks": [{"num": 1, "title": "x", "depends_on": [], "agent": {"name": "TAPER", "role": "field ops"}},
                        {"num": 2, "title": "y", "depends_on": [], "agent": {"name": "TAPER", "role": "field ops"}}]}
@@ -97,7 +97,7 @@ def test_batched_draft_records_covered_tasks(monkeypatch):
 def test_multi_specialist_message_end_to_end():
     calls = []
     real = llm.write
-    llm.write = lambda role, text, mock: calls.append(role) or real(role, text, mock)
+    llm.write = lambda role, text, mock, **kw: calls.append(role) or real(role, text, mock, **kw)
     try:
         graph = g.build_graph(InMemorySaver())
         r = runner.start(graph, "Tailgate briefing for the crew; Silverado oil change; quote the Reimer reno")

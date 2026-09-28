@@ -11,7 +11,10 @@ What it does, every POLL seconds (default 10, env KEEPER_POLL_SECONDS):
   2. Claims one safely (SELECT ... FOR UPDATE SKIP LOCKED + advisory lock), logs `picked up`.
      Jobs the main Matrix flow is working on are locked, so they're skipped.
   3. Runs its tasks in dependency order. Each agent writes a DRAFT ONLY (never sends, pays,
-     deletes or acts in the real world), saved as-is to `drafts`.
+     deletes or acts in the real world), saved as-is to `drafts`, using its own brain
+     (llm.brain_for). A task that clearly needs outside facts may get ONE read-only Scout web
+     search first (matrix/scout.py; capped per job, off without TAVILY_API_KEY), logged as
+     `scout search` with the query only.
   4. Asks the owner "Approve these drafts?" in `approvals` and stops. It never approves itself.
      When the owner answers yes/no, the first poll after the grace window logs `approval answered`,
      then drafts any remaining tasks (and asks again) or logs `job closed` (a "no" logs `rejected`
@@ -39,7 +42,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import config, envelope as env, keeper_settings
+from . import config, envelope as env, keeper_settings, llm, scout
 from .keeper_store import PgStore
 
 # ---------- settings ----------
@@ -137,8 +140,15 @@ def process_job(job: dict, store, brain, sweep: Sweep) -> str:
             if name not in known:
                 add(env.NOT_IN_ROSTER, task=num, agent=name)
             sweep.llm_calls += 1
-            output = brain(name, role, env.task_prompt(job.get("message", ""), task, extra))
+            # Scout: optional read-only web search for outside facts (1 per task, capped per job).
+            found = scout.research(str(task.get("title") or job.get("message", "")), [num], job.get("step_log"))
+            if found is not None:
+                add(env.SCOUT_SEARCH, **scout.step_fields(found, [num], name))
+            web = found["extra"] if found is not None else ""
+            output = brain(name, role, env.task_prompt(job.get("message", ""), task, extra + web))
             extra_fields = {"for_approval": redraft_for} if redraft_for is not None else {}
+            if found is not None:
+                extra_fields["scout"] = {"query": found["query"]}
             store.append(job, "drafts", env.draft(num, name, role, output, **extra_fields))
             add(env.DRAFT_SAVED, task=num, agent=name)
             done_this_run += 1
@@ -194,7 +204,7 @@ def setup_logging() -> None:
         sh = logging.StreamHandler()
         sh.setFormatter(fmt)
         handlers.append(sh)
-    for name in ("keeper_worker", "keeper_store"):
+    for name in ("keeper_worker", "keeper_store", "matrix"):
         lg = logging.getLogger(name)
         for h in handlers:
             lg.addHandler(h)
@@ -214,6 +224,8 @@ def main(argv=None) -> int:
         (LOG_DIR / "keeper_worker.pid").write_text(str(os.getpid()))
     log.info("keeper worker starting (pid %s, every %ss, LLM=%s, max %s LLM calls/sweep, %s tasks/job)",
              os.getpid(), args.interval, config.LLM_PROVIDER, MAX_LLM_CALLS_PER_SWEEP, MAX_TASKS_PER_JOB_RUN)
+    log.info("brains: %s; scout: %s", ", ".join(f"{a}={llm.brain_label(a)}" for a in env.roster()),
+             f"on (max {config.SCOUT_MAX_SEARCHES_PER_JOB} searches/job)" if scout.enabled() else "off")
     store = None
     was_off = None
     while True:

@@ -129,7 +129,7 @@ def test_llm_prompt_uses_custom_name(monkeypatch):
             seen["prompt"] = prompt
             return type("R", (), {"content": "hi"})()
 
-    monkeypatch.setattr(llm, "get_llm", lambda: Fake())
+    monkeypatch.setattr(llm, "get_llm", lambda *a, **k: Fake())
     names.save(rename(names.defaults(), "ASSISTANT", display="Jarvis"))
     llm.write("TAPER (field ops)", "hello", "mock")
     assert seen["prompt"].startswith("You are Jarvis,") and "only as Jarvis" in seen["prompt"]

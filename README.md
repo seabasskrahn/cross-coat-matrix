@@ -16,6 +16,43 @@ later, one at a time, with the owner's approval.
 - **Keeper** is the working memory. Every job is saved to Postgres as it happens, so nothing is
   lost when the program closes.
 
+## Changing an agent's brain
+
+Each agent can think with its own AI brain. Out of the box:
+
+| Agent | Brain |
+| --- | --- |
+| STEWARD | Grok (`xai`, `XAI_MODEL`, default grok-4.6) |
+| BEZEL | Gemini (`gemini`, `GEMINI_MODEL`) |
+| Everyone else (SUNDAY and all specialists) | The default brain: `LLM_PROVIDER` in `.env` |
+
+To change one agent, add **one line** to `.env` (then restart the Keeper worker):
+```
+BRAIN_TAPER=xai
+BRAIN_VECTOR=gemini:gemini-3.1-pro-preview
+```
+The format is `BRAIN_<AGENT>=provider` or `provider:model`, where provider is `xai` (Grok),
+`gemini` or `claude`. You can also change the built-in defaults in `AGENT_BRAINS` in
+`matrix/config.py` (a `.env` line wins over it). If an agent's key is missing (for example no
+`XAI_API_KEY`), that agent uses the default brain and a warning goes in the log. It never crashes.
+`LLM_PROVIDER=mock` is the offline switch: then every agent is mock and no AI is called. The
+worker's log lists each agent's brain when it starts.
+
+## Scout (web search)
+
+Scout is a **read-only** Tavily web search the drafting step can use when a task clearly needs
+outside facts, like "look up", "research", "latest", "current price", "building code" or
+"release notes". It only reads the web, so it needs no approval. The drafts it feeds still wait for
+your yes, as before.
+
+- **At most 1 search per task**, and at most `SCOUT_MAX_SEARCHES_PER_JOB` per job (default 2; set
+  it to `0` in `.env` to turn Scout off). Each search is a basic search with 3 results
+  (`SCOUT_MAX_RESULTS`).
+- **Off entirely** without `TAVILY_API_KEY` in `.env`, and in mock mode.
+- Every search shows in the job's `step_log` as `scout search` (task, agent, query, number of
+  results), and the draft it fed carries `"scout": {"query": ...}`. Only the query is saved, never
+  the key. A failed search is logged, and the agent drafts without it.
+
 ## Keeper in one minute
 
 Each job is one row in the `jobs` table (database `keeper`) with six fields:
