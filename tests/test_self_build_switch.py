@@ -7,6 +7,7 @@ import urllib.error
 import urllib.request
 
 import pytest
+from dashboard_client import auth
 
 import keeper_dashboard as app
 from matrix import keeper_dashboard as kd
@@ -141,7 +142,8 @@ def server():
 def call(srv, path, body=None, headers=None):
     req = urllib.request.Request(f"http://127.0.0.1:{srv.server_address[1]}{path}",
                                  data=None if body is None else json.dumps(body).encode(),
-                                 headers={"Content-Type": "application/json", **(headers or {})})
+                                 headers={"Content-Type": "application/json",
+                                          **(auth(srv) if body is not None else {}), **(headers or {})})
     try:
         with urllib.request.urlopen(req, timeout=5) as r:
             text = r.read().decode()
@@ -164,7 +166,7 @@ def test_flipping_and_shutdown_leave_every_job_and_approval_alone(server):
     assert code == 200 and not is_self_build_on()
     saved = read_file()
     assert saved["self_build_on"] is False and saved["self_build_via"] == "shut down task"
-    assert saved["self_build_changed_by"] == "owner (dashboard)" and saved["self_build_changed_at"]
+    assert saved["self_build_changed_by"].startswith("owner (dashboard session ") and saved["self_build_changed_at"]
     assert store.rows == before                                        # no approval answered/closed/rejected
     assert store.rows[7]["approvals"][0]["status"] == "pending" and store.rows[8]["approvals"][0]["status"] == "yes"
     assert "worker_on" not in saved or saved["worker_on"] is True      # worker switch not flipped
@@ -178,7 +180,7 @@ def test_endpoints_validate_and_keep_the_origin_check(server):
     assert call(srv, "/api/shutdown-task", {"task": "self-build"}, {"Origin": "http://evil.example"})[0] == 403
     assert is_self_build_on()                                          # the refused calls changed nothing
     req = urllib.request.Request(f"http://127.0.0.1:{srv.server_address[1]}/api/self-build",
-                                 data=b'{"on": false}', headers={"Content-Type": "text/plain"})
+                                 data=b'{"on": false}', headers={**auth(srv), "Content-Type": "text/plain"})
     with pytest.raises(urllib.error.HTTPError) as e:
         urllib.request.urlopen(req, timeout=5)
     assert e.value.code == 415 and is_self_build_on()

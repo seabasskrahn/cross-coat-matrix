@@ -15,4 +15,6 @@ os.environ["KEEPER_ENV_FILE"] = os.path.join(_tmp, ".env")
 os.environ["KEEPER_BACKUP_DIR"] = os.path.join(_tmp, "logs")
 os.environ["KEEPER_WORKER_LOG"] = os.path.join(_tmp, "logs", "keeper_worker.log")
 # The worker On/Off switch: never read or write the real logs/keeper_settings.json from tests.
+# Dashboard access log: never written under the real logs/ from tests.
+os.environ["KEEPER_ACCESS_LOG"] = os.path.join(_tmp, "logs", "keeper_access.log")
 os.environ["KEEPER_SETTINGS_FILE"] = os.path.join(tempfile.mkdtemp(prefix="keeper-tests-"), "keeper_settings.json")

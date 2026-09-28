@@ -7,6 +7,7 @@ import urllib.request
 from datetime import datetime, timedelta, timezone
 
 import pytest
+from dashboard_client import auth
 
 import keeper_dashboard as app
 from matrix import config
@@ -417,7 +418,7 @@ def server():
 
 def post(srv, path, body):
     req = urllib.request.Request(f"http://127.0.0.1:{srv.server_address[1]}{path}", data=json.dumps(body).encode(),
-                                 headers={"Content-Type": "application/json"})
+                                 headers={"Content-Type": "application/json", **auth(srv)})
     try:
         with urllib.request.urlopen(req, timeout=5) as r:
             return r.status, json.loads(r.read())

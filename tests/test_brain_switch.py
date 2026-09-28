@@ -6,6 +6,7 @@ import urllib.error
 import urllib.request
 
 import pytest
+from dashboard_client import auth
 
 import keeper_dashboard as app
 from matrix import brain_switch as bs
@@ -141,7 +142,7 @@ def server(files):
 
 
 def call(srv, path, body=None, headers=None):
-    h = {"Content-Type": "application/json", **(headers or {})}
+    h = {"Content-Type": "application/json", **(auth(srv) if body is not None else {}), **(headers or {})}
     req = urllib.request.Request(f"http://127.0.0.1:{srv.server_address[1]}{path}",
                                  data=None if body is None else json.dumps(body).encode(), headers=h)
     try:

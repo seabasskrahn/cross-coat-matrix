@@ -35,7 +35,12 @@ from . import envelope as env
 WORKING, WAITING, CLOSED, HALTED, PAUSED = "Working", "Waiting on you", "Closed", "Halted", "Paused"
 STATUSES = (WAITING, WORKING, PAUSED, HALTED, CLOSED)  # order of the summary strip
 STATUS_CLASS = {WORKING: "working", WAITING: "waiting", CLOSED: "closed", HALTED: "halted", PAUSED: "paused"}
-ANSWERED_BY = "owner (dashboard)"
+ANSWERED_BY = "owner (dashboard)"   # default; the web server passes "owner (dashboard session <id>)"
+
+
+def session_label(short_id: str) -> str:
+    """answered_by / changed_by text for one dashboard browser session (short id, not the secret)."""
+    return f"owner (dashboard session {short_id})"
 MAX_ANSWER = 4000
 REFRESH_SECONDS = 10
 
@@ -114,9 +119,12 @@ def fmt_time(value, now: datetime | None = None) -> str:
 
 
 # ---------- approvals ----------
-def apply_answer(approvals, index: int, action: str, text: str = "", now: str | None = None) -> dict:
+def apply_answer(approvals, index: int, action: str, text: str = "", now: str | None = None,
+                 by: str = ANSWERED_BY, audit: dict | None = None) -> dict:
     """Validate one click and return the fields to merge into approvals[index].
-    action: "yes" / "no" for a yes_no approval, "answer" (with text) for a context_request."""
+    action: "yes" / "no" for a yes_no approval, "answer" (with text) for a context_request.
+    by: who answered (the dashboard session). audit: {"at", "ip", "user_agent", "session"} kept
+    with the answer (inside the approval's JSON, so no schema change)."""
     approvals = env.as_list(approvals)
     if not isinstance(index, int) or isinstance(index, bool) or not 0 <= index < len(approvals):
         raise AnswerError("That approval doesn't exist.", 404)
@@ -125,7 +133,9 @@ def apply_answer(approvals, index: int, action: str, text: str = "", now: str | 
         raise AnswerError("That approval entry is damaged.", 400)
     if env.status_of(item) != env.PENDING:
         raise AnswerError(f"That one was already answered ({env.status_of(item)}).", 409)
-    changes = {"answered_at": now or env.utc_now(), "answered_by": ANSWERED_BY}
+    changes = {"answered_at": now or env.utc_now(), "answered_by": by}
+    if audit:
+        changes["audit"] = dict(audit)
     text = (text or "").strip()
     if env.is_context_request(item):
         if action != "answer":
@@ -142,21 +152,23 @@ def apply_answer(approvals, index: int, action: str, text: str = "", now: str | 
     return changes
 
 
-def answer_approval(store, job_id: int, index: int, action: str, text: str = "") -> dict:
+def answer_approval(store, job_id: int, index: int, action: str, text: str = "",
+                    by: str = ANSWERED_BY, audit: dict | None = None) -> dict:
     """Save one click. Returns the updated approval entry.
     PgStore: one transaction, the row locked with SELECT ... FOR UPDATE, only approvals[index]
     changed (jsonb_set). Any other store (MemoryStore, fakes): get + update_item."""
     if hasattr(store, "conn") and hasattr(store, "table"):
-        return _answer_pg(store, job_id, index, action, text)
+        return _answer_pg(store, job_id, index, action, text, by, audit)
     job = store.get(job_id)
     if job is None:
         raise AnswerError("That job doesn't exist.", 404)
-    changes = apply_answer(job.get("approvals"), index, action, text)
+    changes = apply_answer(job.get("approvals"), index, action, text, by=by, audit=audit)
     store.update_item(job_id, "approvals", index, changes)
     return {**job["approvals"][index], **changes}
 
 
-def _answer_pg(store, job_id: int, index: int, action: str, text: str) -> dict:
+def _answer_pg(store, job_id: int, index: int, action: str, text: str, by: str = ANSWERED_BY,
+               audit: dict | None = None) -> dict:
     from psycopg import sql
     from psycopg.types.json import Jsonb
     with store._mutex, store.conn.transaction():
@@ -164,7 +176,7 @@ def _answer_pg(store, job_id: int, index: int, action: str, text: str) -> dict:
             sql.SQL("SELECT approvals FROM {} WHERE id = %s FOR UPDATE").format(store.table), [job_id]).fetchone()
         if row is None:
             raise AnswerError("That job doesn't exist.", 404)
-        changes = apply_answer(row["approvals"], index, action, text)
+        changes = apply_answer(row["approvals"], index, action, text, by=by, audit=audit)
         new = store.conn.execute(
             sql.SQL("UPDATE {} SET approvals = jsonb_set(approvals, ARRAY[%s::text], (approvals -> %s) || %s) "
                     "WHERE id = %s RETURNING approvals -> %s AS item").format(store.table),
@@ -193,7 +205,8 @@ def can_change_to_yes(job: dict) -> list[int]:
     return can_change(job, "yes")
 
 
-def plan_reopen(job: dict, index, mode: str, now: str | None = None) -> tuple[int, dict, dict]:
+def plan_reopen(job: dict, index, mode: str, now: str | None = None, by: str = ANSWERED_BY,
+                audit: dict | None = None) -> tuple[int, dict, dict]:
     """Check an Undo / Reopen click. Returns (index, new approval entry, step_log entry).
     Undo:   approval `index` was answered and the worker hasn't acted on it yet.
     Reopen: the job was closed because approval `index` was rejected (index may be None)."""
@@ -231,28 +244,32 @@ def plan_reopen(job: dict, index, mode: str, now: str | None = None) -> tuple[in
     else:
         raise AnswerError("Unknown action.")
     stamp = now or env.utc_now()
-    step = env.entry(env.APPROVAL_REOPENED, approval=index, via=mode, by=ANSWERED_BY, note=note,
+    step = env.entry(env.APPROVAL_REOPENED, approval=index, via=mode, by=by, note=note,
                      was=env.status_of(approvals[index]))
     step["at"] = stamp
+    if audit:
+        step["audit"] = dict(audit)
     item = env.reopened(approvals[index], stamp)
     if mode in CHANGE_TARGET:
-        item.update(status=CHANGE_TARGET[mode], answered_at=stamp, answered_by=ANSWERED_BY,
+        item.update(status=CHANGE_TARGET[mode], answered_at=stamp, answered_by=by,
                     changed_from=env.status_of(approvals[index]))
+        if audit:
+            item["audit"] = dict(audit)
     return index, item, step
 
 
-def reopen_approval(store, job_id: int, index, mode: str) -> dict:
+def reopen_approval(store, job_id: int, index, mode: str, by: str = ANSWERED_BY, audit: dict | None = None) -> dict:
     """Save an Undo / Reopen: the approval back to pending + an `approval reopened` step, together.
     PgStore: one transaction; row locked (SELECT ... FOR UPDATE) and refused if the worker holds the
     job's advisory lock (it's acting on the job right now). Returns the new approval entry."""
     if hasattr(store, "conn") and hasattr(store, "table"):
-        return _reopen_pg(store, job_id, index, mode)
+        return _reopen_pg(store, job_id, index, mode, by, audit)
     job = store.get(job_id)
     if job is None:
         raise AnswerError("That job doesn't exist.", 404)
     if job_id in getattr(store, "locked", ()):
         raise AnswerError(BUSY, 409)
-    index, item, step = plan_reopen(job, index, mode)
+    index, item, step = plan_reopen(job, index, mode, by=by, audit=audit)
     approvals = env.as_list(job.get("approvals"))
     approvals[index] = item
     store.set_field(job_id, "approvals", approvals)
@@ -263,7 +280,7 @@ def reopen_approval(store, job_id: int, index, mode: str) -> dict:
 BUSY = "The Keeper worker is working on this job right now. Try again in a few seconds."
 
 
-def _reopen_pg(store, job_id: int, index, mode: str) -> dict:
+def _reopen_pg(store, job_id: int, index, mode: str, by: str = ANSWERED_BY, audit: dict | None = None) -> dict:
     from psycopg import sql
     from psycopg.types.json import Jsonb
     from .keeper_store import LOCK_NAMESPACE
@@ -277,7 +294,7 @@ def _reopen_pg(store, job_id: int, index, mode: str) -> dict:
                                   [LOCK_NAMESPACE, job_id]).fetchone()["ok"]
         if not free:
             raise AnswerError(BUSY, 409)
-        index, item, step = plan_reopen(row, index, mode)
+        index, item, step = plan_reopen(row, index, mode, by=by, audit=audit)
         store.conn.execute(
             sql.SQL("UPDATE {} SET approvals = jsonb_set(approvals, ARRAY[%s::text], %s), "
                     "step_log = COALESCE(step_log, '[]'::jsonb) || %s WHERE id = %s").format(store.table),
@@ -285,7 +302,7 @@ def _reopen_pg(store, job_id: int, index, mode: str) -> dict:
     return item
 
 
-def set_paused(store, job_id: int, paused: bool) -> bool:
+def set_paused(store, job_id: int, paused: bool, by: str = ANSWERED_BY) -> bool:
     """Per-job On/Off: append a `paused` or `resumed` step (under a row lock on Postgres).
     Returns the new paused state. A closed job can't be paused; asking for the current state is a no-op."""
     def plan(job):
@@ -293,7 +310,7 @@ def set_paused(store, job_id: int, paused: bool) -> bool:
             raise AnswerError("This job is closed; there's nothing to pause.", 409)
         if env.is_paused(job) == paused:
             return None
-        return env.entry(env.PAUSED if paused else env.RESUMED, by=ANSWERED_BY)
+        return env.entry(env.PAUSED if paused else env.RESUMED, by=by)
 
     if hasattr(store, "conn") and hasattr(store, "table"):
         from psycopg import sql
@@ -461,6 +478,8 @@ STYLE = r"""
 """
 
 SCRIPT = r"""
+const KEEPER_TOKEN = (document.querySelector('meta[name="keeper-token"]') || {}).content || "";
+function jsonHeaders() { return {"Content-Type":"application/json", "X-Keeper-Token": KEEPER_TOKEN}; }
 function say(text, ok) { const m = document.getElementById("note"); if (!m) return; m.textContent = text; m.className = ok ? "ok" : "err"; window.scrollTo(0, 0); }
 async function answer(job, index, action) {
   let text = "";
@@ -470,7 +489,7 @@ async function answer(job, index, action) {
     if (!text) { say("Type an answer first.", false); return; }
   }
   try {
-    const r = await fetch("/api/answer", {method:"POST", headers:{"Content-Type":"application/json"},
+    const r = await fetch("/api/answer", {method:"POST", headers:jsonHeaders(),
       body:JSON.stringify({job:job, index:index, action:action, text:text})});
     const j = await r.json();
     if (!r.ok) throw new Error(j.error || "Something went wrong");
@@ -480,7 +499,7 @@ async function answer(job, index, action) {
 }
 async function post(url, body, note) {
   try {
-    const r = await fetch(url, {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body)});
+    const r = await fetch(url, {method:"POST", headers:jsonHeaders(), body:JSON.stringify(body)});
     const j = await r.json();
     if (!r.ok) throw new Error(j.error || "Something went wrong");
     sessionStorage.setItem("keeper-note", note);
@@ -875,6 +894,12 @@ def render_job(job: dict, now: datetime | None = None, settings: dict | None = N
         f"<h2>Step log</h2>{_render_timeline(job, now)}")
     return page(f"Job #{job.get('id')}", worker_banner(settings) + body, short(job.get("message"), 140), back=True,
                 switch=worker_switch(settings) + self_build_switch(settings) + brain_panel(brain))
+
+
+def with_token(page_html: str, token: str) -> str:
+    """Put this browser session's token into the page (a <meta> the page's JS sends back as
+    X-Keeper-Token). Only the web server calls this; the token is never logged."""
+    return page_html.replace("</head>", f'<meta name="keeper-token" content="{esc(token)}">\n</head>', 1)
 
 
 def render_error(title: str, detail: str) -> str:

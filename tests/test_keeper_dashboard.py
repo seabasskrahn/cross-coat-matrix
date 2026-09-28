@@ -6,6 +6,7 @@ import urllib.request
 from datetime import datetime, timezone
 
 import pytest
+from dashboard_client import auth
 
 import keeper_dashboard as app
 from matrix import envelope as env
@@ -223,7 +224,8 @@ def server():
 def call(srv, path, body=None, headers=None):
     url = f"http://127.0.0.1:{srv.server_address[1]}{path}"
     data = json.dumps(body).encode() if body is not None else None
-    req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json", **(headers or {})})
+    req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json",
+                                                          **(auth(srv) if body is not None else {}), **(headers or {})})
     try:
         with urllib.request.urlopen(req, timeout=5) as r:
             return r.status, r.read().decode()

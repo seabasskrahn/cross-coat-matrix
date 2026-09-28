@@ -23,23 +23,127 @@ Self-build loop: a separate "Self-build loop: ON/OFF" header toggle (POST /api/s
 "Always-running tasks" card whose "Shut down task" button (POST /api/shutdown-task) sets self_build_on
 false in the same settings file. Neither ever answers, closes or rejects a job or approval.
 GET /api/jobs and /api/job/<id> return JSON (for later tools).
+
+Approval gate: every page load gives your browser a session (a random id in an HttpOnly,
+SameSite=Strict cookie) and puts a matching random token in the page; the page sends it back as the
+X-Keeper-Token header. Every POST (answer, Undo, Change to Yes/No, Reopen, pause, switches, brains)
+needs that cookie + token pair AND an Origin header of this dashboard, on top of the Host allow-list,
+JSON-only and size checks; anything else gets 403 and is logged. Sessions live only in this
+process's memory and expire (KEEPER_SESSION_TTL_SECONDS, default 12 hours); restarting the dashboard
+just means reloading the page. Answers record answered_by "owner (dashboard session <id>)" plus an
+audit entry (time, client IP, user agent). Requests are logged to logs/keeper_access.log (rotating,
+KEEPER_ACCESS_LOG to move it); tokens and cookies are never logged.
 """
 import argparse
+import hmac
 import json
+import logging
+import logging.handlers
+import os
 import re
+import secrets
 import sys
 import threading
+import time
 import webbrowser
+from http.cookies import CookieError, SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 
 from matrix import brain_switch, config
 from matrix import keeper_dashboard as kd
 from matrix import keeper_settings
+from matrix.envelope import utc_now
 
 HOST = "127.0.0.1"
 DEFAULT_PORT = 8766
 PORT_TRIES = 10
 MAX_BODY = 20_000
+
+
+COOKIE_NAME = "keeper_session"
+TOKEN_HEADER = "X-Keeper-Token"
+SESSION_TTL_SECONDS = float(os.getenv("KEEPER_SESSION_TTL_SECONDS", str(12 * 3600)))
+MAX_SESSIONS = 200
+DEFAULT_ACCESS_LOG = Path(__file__).resolve().parent / "logs" / "keeper_access.log"
+_CONTROL = re.compile(r"[\x00-\x1f\x7f]")
+
+
+def clean(value, limit: int = 300) -> str:
+    """Log-safe text: no control characters (no forged log lines), capped length."""
+    return _CONTROL.sub("?", "" if value is None else str(value))[:limit]
+
+
+def access_log_path() -> Path:
+    return Path(os.getenv("KEEPER_ACCESS_LOG") or DEFAULT_ACCESS_LOG)
+
+
+def access_logger() -> logging.Logger:
+    """logs/keeper_access.log: a rotating file (1 MB x 5 kept, nothing wiped on a schedule).
+    Never given tokens, cookies or secrets."""
+    lg = logging.getLogger("keeper_access")
+    path = str(access_log_path())
+    if not any(getattr(h, "baseFilename", None) == os.path.abspath(path) for h in lg.handlers):
+        for h in list(lg.handlers):
+            lg.removeHandler(h)
+            h.close()
+        Path(path).parent.mkdir(parents=True, exist_ok=True)
+        fh = logging.handlers.RotatingFileHandler(path, maxBytes=1_000_000, backupCount=5, encoding="utf-8")
+        fh.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
+        lg.addHandler(fh)
+        lg.setLevel(logging.INFO)
+        lg.propagate = False
+    return lg
+
+
+class Sessions:
+    """Dashboard browser sessions, in memory only: session id (cookie) -> token (in the page).
+    Random values from secrets.token_urlsafe, checked with hmac.compare_digest, with an expiry."""
+
+    def __init__(self, ttl: float = SESSION_TTL_SECONDS, clock=time.monotonic):
+        self.ttl, self.clock = ttl, clock
+        self._items: dict[str, dict] = {}
+        self._lock = threading.Lock()
+
+    def _prune(self, now: float):
+        for sid in [s for s, v in self._items.items() if v["expires"] <= now]:
+            del self._items[sid]
+        while len(self._items) >= MAX_SESSIONS:  # oldest first
+            del self._items[min(self._items, key=lambda s: self._items[s]["expires"])]
+
+    def new(self) -> tuple[str, dict]:
+        with self._lock:
+            now = self.clock()
+            self._prune(now)
+            sid = secrets.token_urlsafe(32)
+            self._items[sid] = {"token": secrets.token_urlsafe(32), "short": secrets.token_hex(4),
+                                "expires": now + self.ttl}
+            return sid, dict(self._items[sid])
+
+    def get(self, sid: str | None) -> dict | None:
+        """The live session for this cookie value (its expiry is extended), or None."""
+        if not sid:
+            return None
+        with self._lock:
+            now = self.clock()
+            item = self._items.get(sid)
+            if item is None or item["expires"] <= now:
+                self._items.pop(sid, None)
+                return None
+            item["expires"] = now + self.ttl
+            return dict(item)
+
+    def check(self, sid: str | None, token: str | None) -> dict | None:
+        """The session if the cookie is live AND the token matches it (constant-time), else None."""
+        if not sid or not token:
+            return None
+        with self._lock:
+            item = self._items.get(sid)
+            if item is None or item["expires"] <= self.clock():
+                return None
+            if not hmac.compare_digest(item["token"].encode(), str(token).encode()):
+                return None
+            return dict(item)
 
 
 class NoDatabase(Exception):
@@ -95,9 +199,59 @@ class Backend:
 class Handler(BaseHTTPRequestHandler):
     server_version = "KeeperDashboard/1.0"
     backend: Backend = None  # set by make_server
+    sessions: Sessions = None  # set by make_server
+    _cookie_out: str | None = None
 
-    def log_message(self, fmt, *args):  # keep the window quiet
-        pass
+    def log_message(self, fmt, *args):
+        """Access log line: client IP, method + path (no query string), status, user agent.
+        Never the token, cookies or request bodies. Nothing goes to the window."""
+        try:
+            path = (self.path or "").split("?", 1)[0] if getattr(self, "path", None) else ""
+            what = f"{self.command} {path}" if getattr(self, "command", None) else ""
+            detail = fmt % args if not what else " ".join(str(a) for a in args[1:])
+            ua = self.headers.get("User-Agent", "") if getattr(self, "headers", None) else ""
+            access_logger().info('%s "%s" %s ua="%s"', clean(self.client_address[0]), clean(what),
+                                 clean(detail), clean(ua))
+        except Exception:  # noqa: BLE001 - logging must never break a request
+            pass
+
+    def _audit_log(self, level: int, text: str, *args):
+        try:
+            access_logger().log(level, text, *[clean(a) for a in args])
+        except Exception:  # noqa: BLE001
+            pass
+
+    def _cookie_sid(self) -> str | None:
+        raw = self.headers.get("Cookie")
+        if not raw:
+            return None
+        try:
+            morsel = SimpleCookie(raw).get(COOKIE_NAME)
+        except CookieError:
+            return None
+        return morsel.value if morsel else None
+
+    def _page_session(self) -> dict:
+        """The browser's session (new one + Set-Cookie if it has none or it expired)."""
+        sess = self.sessions.get(self._cookie_sid())
+        if sess is None:
+            sid, sess = self.sessions.new()
+            self._cookie_out = (f"{COOKIE_NAME}={sid}; Path=/; HttpOnly; SameSite=Strict; "
+                                f"Max-Age={int(self.sessions.ttl)}")
+        return sess
+
+    def _page(self, code: int, text: str):
+        sess = self._page_session()
+        return self._html(code, kd.with_token(text, sess["token"]))
+
+    def _origin_ok(self) -> bool:
+        port = self.server.server_address[1]
+        return self.headers.get("Origin") in {f"http://127.0.0.1:{port}", f"http://localhost:{port}"}
+
+    def _reject(self, path: str, reason: str):
+        self._audit_log(logging.WARNING, "REJECTED POST %s from %s: %s (ua=\"%s\")", path,
+                        self.client_address[0], reason, self.headers.get("User-Agent", ""))
+        return self._json(403, {"error": "Forbidden. Reload the dashboard page and try again."})
 
     def _allowed_host(self) -> bool:
         """Only answer requests addressed to this computer (blocks DNS-rebinding tricks)."""
@@ -111,6 +265,9 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("X-Frame-Options", "DENY")
+        if self._cookie_out:
+            self.send_header("Set-Cookie", self._cookie_out)
+            self._cookie_out = None
         self.end_headers()
         self.wfile.write(body)
 
@@ -128,7 +285,7 @@ class Handler(BaseHTTPRequestHandler):
         m = re.fullmatch(r"/(api/)?job/(\d{1,12})", path)
         try:
             if path in ("/", "/index.html"):
-                return self._html(200, kd.render_list(self.backend.run(kd.list_jobs), settings=keeper_settings.load(),
+                return self._page(200, kd.render_list(self.backend.run(kd.list_jobs), settings=keeper_settings.load(),
                                                      brain=brain_switch.panel_info()))
             if path == "/api/jobs":
                 jobs = self.backend.run(kd.list_jobs)
@@ -139,29 +296,33 @@ class Handler(BaseHTTPRequestHandler):
                 if m.group(1):
                     return self._json(404, {"error": "Not found"}) if job is None else \
                         self._json(200, {**job, "status": kd.job_status(job)})
-                return self._html(404, kd.render_not_found(m.group(2))) if job is None else \
-                    self._html(200, kd.render_job(job, settings=keeper_settings.load(),
+                return self._page(404, kd.render_not_found(m.group(2))) if job is None else \
+                    self._page(200, kd.render_job(job, settings=keeper_settings.load(),
                                                  brain=brain_switch.panel_info()))
         except NoDatabase as err:
             if path.startswith("/api/"):
                 return self._json(503, {"error": str(err)})
-            return self._html(503, kd.render_error("Keeper database not available", str(err)))
+            return self._page(503, kd.render_error("Keeper database not available", str(err)))
         return self._json(404, {"error": "Not found"})
 
     def do_POST(self):
         if not self._allowed_host():
             return self._json(403, {"error": "Forbidden"})
-        origin = self.headers.get("Origin")
-        port = self.server.server_address[1]
-        if origin and origin not in {f"http://127.0.0.1:{port}", f"http://localhost:{port}"}:
-            return self._json(403, {"error": "Forbidden"})
+        path = self.path.split("?", 1)[0]
+        if not self._origin_ok():  # must be present AND be this dashboard
+            return self._reject(path, "missing or foreign Origin")
         if not self.headers.get("Content-Type", "").startswith("application/json"):
             return self._json(415, {"error": "Send JSON"})
-        path = self.path.split("?", 1)[0]
         if path not in ("/api/answer", "/api/undo", "/api/reopen", "/api/change-to-yes", "/api/change-to-no",
                         "/api/pause", "/api/worker", "/api/brain", "/api/bezel-brain",
                         "/api/self-build", "/api/shutdown-task"):
             return self._json(404, {"error": "Not found"})
+        sess = self.sessions.check(self._cookie_sid(), self.headers.get(TOKEN_HEADER))
+        if sess is None:  # every POST needs this page's session cookie + matching token
+            return self._reject(path, "missing, expired or wrong session token")
+        by = kd.session_label(sess["short"])
+        audit = {"at": utc_now(), "ip": clean(self.client_address[0], 64),
+                 "user_agent": clean(self.headers.get("User-Agent", "")), "session": sess["short"]}
         length = int(self.headers.get("Content-Length") or 0)
         if length > MAX_BODY:
             return self._json(413, {"error": "Too big"})
@@ -176,20 +337,20 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/api/worker":
                 if not isinstance(data.get("on"), bool):
                     raise ValueError
-                return self._json(200, {"ok": True, "settings": keeper_settings.set_worker_on(data["on"])})
+                return self._json(200, {"ok": True, "settings": keeper_settings.set_worker_on(data["on"], by=by)})
             if path == "/api/self-build":  # settings file only; never touches a job or approval
                 if not isinstance(data.get("on"), bool):
                     raise ValueError
-                return self._json(200, {"ok": True, "settings": keeper_settings.set_self_build_on(data["on"])})
+                return self._json(200, {"ok": True, "settings": keeper_settings.set_self_build_on(data["on"], by=by)})
             if path == "/api/shutdown-task":  # stop an always-running task; not a rejection
                 if data.get("task") != kd.SELF_BUILD_TASK:
                     return self._json(404, {"error": "No such always-running task."})
-                return self._json(200, {"ok": True, "settings": keeper_settings.shut_down_self_build()})
+                return self._json(200, {"ok": True, "settings": keeper_settings.shut_down_self_build(by=by)})
             job_id = data["job"]
             if path == "/api/pause":
                 if not isinstance(data.get("paused"), bool) or not isinstance(job_id, int) or isinstance(job_id, bool):
                     raise ValueError
-                paused = self.backend.run(kd.set_paused, job_id, data["paused"])
+                paused = self.backend.run(lambda s: kd.set_paused(s, job_id, data["paused"], by=by))
                 return self._json(200, {"ok": True, "paused": paused})
             optional = path in ("/api/reopen", "/api/change-to-yes", "/api/change-to-no")  # index may be left out
             index = data.get("index") if optional else data["index"]
@@ -207,15 +368,18 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(500, {"error": f"Couldn't save the switch ({type(err).__name__})."})
         try:
             if path == "/api/answer":
-                item = self.backend.run(kd.answer_approval, job_id, index, action, text)
+                item = self.backend.run(lambda s: kd.answer_approval(s, job_id, index, action, text,
+                                                                     by=by, audit=audit))
             else:
                 mode = {"/api/undo": kd.UNDO, "/api/reopen": kd.REOPEN,
                         "/api/change-to-yes": kd.CHANGE_TO_YES, "/api/change-to-no": kd.CHANGE_TO_NO}[path]
-                item = self.backend.run(kd.reopen_approval, job_id, index, mode)
+                item = self.backend.run(lambda s: kd.reopen_approval(s, job_id, index, mode, by=by, audit=audit))
         except kd.AnswerError as err:
             return self._json(err.code, {"error": str(err)})
         except NoDatabase as err:
             return self._json(503, {"error": str(err)})
+        self._audit_log(logging.INFO, "APPROVAL %s job=%s index=%s action=%s by=%s ip=%s ua=\"%s\"", path, job_id,
+                        index, action if path == "/api/answer" else "-", by, audit["ip"], audit["user_agent"])
         return self._json(200, {"ok": True, "approval": item})
 
 
@@ -226,7 +390,8 @@ class Server(ThreadingHTTPServer):
 
 
 def make_server(port: int, backend: Backend | None = None) -> Server:
-    handler = type("BoundHandler", (Handler,), {"backend": backend or Backend()})
+    access_logger()
+    handler = type("BoundHandler", (Handler,), {"backend": backend or Backend(), "sessions": Sessions()})
     return Server((HOST, port), handler)
 
 
