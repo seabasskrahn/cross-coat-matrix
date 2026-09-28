@@ -1,57 +1,96 @@
 # Cross Coat Matrix
 
-## Purpose (right now)
-The Matrix's only purpose right now is to **build itself**. It is not built yet, so it does not run any operations today: no drywall or job work, no personal tasks, no calendar, no reading Gmail, no invoicing or QuickBooks, no other operational work.
+A multi-agent AI system for Cross Coat Drywall. For now its only job is to **build itself**:
+it does no real operations yet (no invoicing, email, calendar or job work). Those get switched on
+later, one at a time, with the owner's approval.
 
-**Future functions are parked until the Matrix is built.** They get switched on later, one at a time, only with the owner's approval.
+**Seabass is the only CEO.** The AI drafts. It never sends, pays, deletes or decides without his yes.
 
-**You (Seabass) are the only CEO.** The AI drafts. It never sends, pays, deletes, or decides without your yes.
+## How it works
 
-## What it has so far
-- A switchboard (**S.U.N.D.A.Y.**) that passes each message to a boss (**S.T.E.W.A.R.D.** or **B.E.Z.E.L.**), who hands it to an agent.
-- An **approval gate**: anything that would leave the system stops and asks you yes or no.
-- A log of every handoff (am/pm times), max 5 tasks at a time.
-- Two AI brains connected: Grok (`grok-4.6`) and Gemini (`gemini-3.1-pro-preview`). `mock` mode runs offline for free.
+- **SUNDAY** (switchboard) reads each message, splits it into a small number of numbered tasks,
+  and passes them to a senior: **STEWARD** (Grok brain) or **BEZEL** (Gemini brain).
+- The senior assigns each task to a specialist agent (name + role). The specialist writes a **draft**.
+- Anything that would leave the system stops at an **approval** and waits for Seabass.
+  LEDGER always stops.
+- **Keeper** is the working memory. Every job is saved to Postgres as it happens, so nothing is
+  lost when the program closes.
 
-The specialist agents already listed in `matrix/agents.py` are placeholders for **future functions (not active)**. They only say what they would do.
+## Keeper in one minute
 
-## Run it (Windows Command Prompt)
+Each job is one row in the `jobs` table (database `keeper`) with six fields:
+
+| Field | Holds |
+| --- | --- |
+| `message` | What was asked |
+| `tasks` | Numbered tasks with dependencies, each with agent name + role |
+| `agents` | Who's assigned |
+| `drafts` | Each agent's output, saved as-is |
+| `approvals` | A back-and-forth thread (quick yes/no or context request). The job waits until it's resolved |
+| `step_log` | Timestamped actions with tags (`message received`, `draft saved`, `approval asked`, `job closed`, ...) |
+
+The full spec is in **[docs/KEEPER_SPEC.md](docs/KEEPER_SPEC.md)**.
+
+A background **Keeper worker** checks `jobs` every 10 seconds, drafts any pending job, asks for
+approval, and stops. It never approves on its own, and a circuit breaker caps tasks and brain calls
+per round.
+
+## Quick start (Windows)
+
+**1. Python packages** (first time only)
 ```
 cd %USERPROFILE%\Desktop\cross-coat-matrix
-pytest
+pip install -r requirements.txt
+```
+
+**2. Postgres for Keeper.** Follow **[docs/KEEPER_SETUP.md](docs/KEEPER_SETUP.md)**: install
+PostgreSQL 17, create the `keeper` database and a `matrix` login, then add this line to `.env`:
+```
+CHECKPOINT_DB_URL=postgresql://matrix:YOUR_PASSWORD@localhost:5432/keeper
+```
+Without this line the Matrix still runs, but it forgets everything when it stops.
+
+**3. Brain.** In `.env`, set `LLM_PROVIDER=xai` (Grok), `gemini`, or `mock` (free, offline), plus
+the matching API key. Keys go only in `.env`, never in chat. See `.env.example`.
+
+**4. Check it**
+```
+python -m pytest
+```
+
+**5. Talk to the Matrix**
+```
 python chat.py
 ```
-First time only: `pip install -r requirements.txt`. Type `quit` to leave the chat.
+Type `quit` to leave.
 
-**New to this? See [GUIDE.md](GUIDE.md). What to build next: [ROADMAP.md](ROADMAP.md).**
-
-## Main files
-| File | What it does |
-|---|---|
-| `chat.py` | Talk to the Matrix in the terminal |
-| `rename_panel.py` | Rename panel: change names shown for the assistant, agents and services (saved in `matrix_names.json`) |
-| `matrix/names.py` | Loads/saves/checks the names in `matrix_names.json` |
-| `matrix/agents.py` | Who's who. **Where you add new agents** (see ROADMAP Zone 1) |
-| `matrix/graph.py` | Wires the agents together automatically from `agents.py` |
-| `matrix/llm.py` | Talks to Grok, Gemini or Claude (or mock mode) |
-| `matrix/config.py` | Settings, read from `.env` |
-| `tests/test_smoke.py` | Automatic checks (`pytest`) |
-| `demo.py`, `matrix/api.py`, `n8n/`, `docker-compose.yml`, `Dockerfile`, `postgres-init/` | Built earlier for a later server/phone setup. Not needed now |
-
-## Rename panel (change what things are called)
+**6. Run the Keeper worker**
 ```
-python rename_panel.py
+run_keeper.bat
 ```
-Your browser opens a page (http://127.0.0.1:8765, only reachable from this computer) listing your assistant, the agents, and the services. Change a name, description, color or icon, then press **Save**. **Reset to defaults** puts everything back (Stuart, SUNDAY, STEWARD, ...). Press Ctrl+C in the Command Prompt window to close the panel.
+It runs hidden in the background and writes to `logs\keeper_worker.log`. To stop it:
+```
+powershell -Command "Stop-Process -Id (Get-Content logs\keeper_worker.pid)"
+```
+Use `python -m matrix.keeper_worker --once` for a single sweep. You can view and answer jobs in
+pgAdmin 4 (set an approval's `status` to `yes` or `no`).
 
-- Names are saved in `matrix_names.json`. If that file is missing, the defaults are used.
-- The first row is the name you talk to: `chat.py` greets you with it, answers with it, and asks for your yes with it. Agent names show in the routing lines (`SHOW_ROUTING=1`).
-- Only the names on screen change. Inside, the Matrix still uses the fixed IDs (SUNDAY, TAPER, ...), so nothing breaks. Rules: 1 to 40 characters, no two the same.
-- New agents added to `matrix/agents.py` show up in the panel automatically.
-- The future 3D view can read the same data as JSON at http://127.0.0.1:8765/names.
+## Working with Grok Bot
 
-## Switching the AI brain
-In `.env` (plain `KEY=value` lines, no comments on the same line), change one line: `LLM_PROVIDER=xai`, `LLM_PROVIDER=gemini`, or `LLM_PROVIDER=mock`. Keys go only in `.env`. Never paste them into chat.
+Seabass builds the Matrix by talking to **Grok Bot**, his AI assistant, by chat or voice call.
+Grok Bot edits this repo, runs the tests, pushes to GitHub, writes the docs in `docs/`, and can run
+commands on Seabass's PC with his approval. The same rules apply: he's the CEO, Grok Bot drafts
+and builds, and nothing goes out, gets paid or gets deleted without his yes.
 
-## Tested
-Tested 2026-09-27 on Linux (Python 3.12/3.13) and set up on Windows with Python 3.14. Not tested on a Mac.
+## Other tools
+
+- `python rename_panel.py` opens a local page (http://127.0.0.1:8765) to rename the assistant,
+  agents and services. The names are saved in `matrix_names.json`.
+- `matrix/agents.py` is the roster, and new agents go there.
+- `docker-compose.yml`, `Dockerfile`, `n8n/`, `postgres-init/` and `matrix/api.py` are for a later
+  server/phone setup and aren't needed now.
+
+## More docs
+
+[GUIDE.md](GUIDE.md) (new to this) · [ROADMAP.md](ROADMAP.md) · [docs/TIMELINE.md](docs/TIMELINE.md) ·
+[docs/MIND_MAP.md](docs/MIND_MAP.md) · [docs/MIND_MAP_SIMPLE.md](docs/MIND_MAP_SIMPLE.md)
